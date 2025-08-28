@@ -12,7 +12,7 @@ function sample() {
       {
         city: "Lisbon",
         country: "Portugal",
-        summary: "Compact hills, viewpoints, pastry culture; easy 4-day hop from London.",
+        summary: "Compact hills, viewpoints, pastry culture; easy short-haul from the UK.",
         days: [
           { morning:"Pastéis de Belém (Rua de Belém 84–92)", afternoon:"MAAT riverside walk via Avenida Brasília", evening:"Bairro Alto petiscos on Rua da Atalaia" },
           { morning:"Tram 28 to Graça + Miradouro da Senhora do Monte", afternoon:"Tile studio near Largo do Intendente", evening:"Fado at Clube de Fado, Alfama" },
@@ -26,58 +26,72 @@ function sample() {
 
 const FILLERS = [/optional afternoon stroll/i, /relaxing dinner/i, /resort time/i, /\bfree time\b/i];
 
-function stripHints(s = "") {
-  return s
-    .replace(/\s*\(add a named street\/venue\/landmark\)\s*/gi, '')
-    .replace(/\s*— plus a contrasting nearby activity\.?\s*/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+const STRIP = (s="") => s
+  .replace(/\s*\(add a named street\/venue\/landmark\)\s*/gi, '')
+  .replace(/\s*— plus a contrasting nearby activity\.?\s*/gi, '')
+  .replace(/\s+/g, ' ')
+  .trim();
 
-function cleanItin(days) {
-  const seen = new Set();
-  const used = new Set();
+function cleanItin(days=[]) {
+  const seen = new Set(), used = new Set();
   const verbs = ['wander','sample','trace','duck into','people-watch','bar-hop','graze','meander','poke around','soak up'];
-
-  const rep = s => FILLERS.reduce((t, re) => t.replace(re, ''), s).trim();
-  const verb = s => { const v = verbs.find(x => !used.has(x)) || 'explore'; used.add(v); return s.replace(/\b(stroll|relax|enjoy|explore)\b/i, v); };
-  const anch = s => (/[A-Z][a-z]+(?:\s[A-Z][a-z]+)+/.test(s) ? s : s + ''); // don’t append hint; we’ll just leave as-is
-  const dedu = d => {
-    ['morning','afternoon','evening'].forEach(k => {
-      const key = k+':'+(d[k]||'').toLowerCase().slice(0,60);
-      if (seen.has(key)) d[k] += '';
-      seen.add(key);
-    });
-    return d;
-  };
-
-  return days.map(d => dedu({
-    morning: stripHints(verb(anch(rep(d.morning)))),
-    afternoon: stripHints(verb(anch(rep(d.afternoon)))),
-    evening: stripHints(verb(anch(rep(d.evening))))
-  }));
+  const rep = s => FILLERS.reduce((t, re) => t.replace(re, ''), s || '').trim();
+  const verb = s => { const v = verbs.find(x => !used.has(x)) || 'explore'; used.add(v); return (s||'').replace(/\b(stroll|relax|enjoy|explore)\b/i, v); };
+  const dedu = d => { ['morning','afternoon','evening'].forEach(k => { const key = k+':'+(d[k]||'').toLowerCase().slice(0,60); if (seen.has(key)) d[k] += ''; seen.add(key); }); return d; };
+  return days.map(d => dedu({ morning: STRIP(verb(rep(d.morning))), afternoon: STRIP(verb(rep(d.afternoon))), evening: STRIP(verb(rep(d.evening))) }));
 }
 
-function buildPrompt({ origin='LHR', duration='weekend-4d' }) {
-  const durLine =
-    duration === 'weekend-4d' ? "Duration: EXACTLY 4 days." :
-    duration === 'two-weeks' ? "Duration: EXACTLY 14 days." :
-    "Duration: EXACTLY 7 days.";
+function daysWanted(duration) {
+  return duration==='weekend-2d' ? 2 : duration==='mini-4d' ? 4 : duration==='two-weeks' ? 14 : 7;
+}
+
+/* ---------- Prompt builder from YOUR 7 fields ---------- */
+function buildPrompt(origin, p) {
+  const hours = Math.min(Math.max(Number(p.flight_time_hours)||8, 1), 20);
+  const wantDays = daysWanted(p.duration);
+  const groupTxt = p.group==='family'?'Family with kids':p.group==='friends'?'Group of friends':p.group==='couple'?'Couple':'Solo';
+  const styleMap = { adventure:'Adventure & outdoor activities', relaxation:'Relaxation & beach', cultural:'Cultural & historical', luxury:'Luxury & fine dining', budget:'Budget & backpacking' };
+  const styleTxt = styleMap[p.style] || 'Mixed';
+  const interestsTxt = Array.isArray(p.interests)&&p.interests.length ? p.interests.join(', ') : 'surprise me';
+  const seasonTxt = p.season==='flexible' ? 'Flexible timing' :
+    p.season==='spring' ? 'Spring (Mar–May)' :
+    p.season==='summer' ? 'Summer (Jun–Aug)' :
+    p.season==='autumn' ? 'Autumn (Sep–Nov)' : 'Winter (Dec–Feb)';
+  const paceTxt = p.pace==='total' ? 'Total relaxation' : p.pace==='relaxed' ? 'A few relaxing activities' : p.pace==='daily' ? 'Different activity every day' : 'Packed schedule';
 
   const rules =
-    "You must produce exact-day itineraries with VARIETY. HARD RULES:\n" +
-    "- No day may repeat the same morning/afternoon/evening pattern across days.\n" +
-    "- Each day must include 1–2 place-specific anchors (named spots, streets, venues) and 1 micro-detail (dish, view, material, sound).\n" +
-    "- Insert 1 local quirk per trip (etiquette, transit trick, closing hour).\n" +
-    "- Include constraints: common opening hours when widely known, travel time sanity, and one rain fallback.\n" +
-    "- Avoid filler: “optional stroll”, “relaxing dinner”, “free time at resort”.\n" +
-    "- Vary verbs; don’t reuse stroll/relax/enjoy/explore.\n" +
-    "- OUTPUT JSON ONLY: { \"top3\": [{ \"city\":\"...\",\"country\":\"...\",\"summary\":\"...\",\"days\":[{\"morning\":\"...\",\"afternoon\":\"...\",\"evening\":\"...\"}]}] }.\n" +
-    "- The number of days MUST MATCH duration exactly.";
+`You must produce exact-day itineraries with VARIETY.
+HARD RULES:
+- No day may repeat the same morning/afternoon/evening pattern across days.
+- Each day must include 1–2 place-specific anchors (named spots, streets, venues) and 1 micro-detail (dish, view, material, sound).
+- Insert 1 local quirk per trip (etiquette, transit trick, closing hour).
+- Include constraints: common opening hours when widely known, travel time sanity, and one rain fallback.
+- Avoid filler: “optional stroll”, “relaxing dinner”, “free time at resort”.
+- Vary verbs; don’t reuse stroll/relax/enjoy/explore.
+- OUTPUT JSON ONLY in this exact shape:
+{
+  "top3": [
+    {
+      "city": "City",
+      "country": "Country",
+      "summary": "1–2 lines why this fits",
+      "days": [
+        { "morning": "...", "afternoon": "...", "evening": "..." }
+      ]
+    }
+  ]
+}
+- The number of days MUST be exactly ${wantDays}.`;
 
   return [
     `Origin: ${origin}.`,
-    durLine,
+    `Non-stop flight time must be ≤ ~${hours} hours from origin.`,
+    `Trip length: EXACTLY ${wantDays} days.`,
+    `Group: ${groupTxt}.`,
+    `Style: ${styleTxt}.`,
+    `User interests: ${interestsTxt}.`,
+    `Season: ${seasonTxt}.`,
+    `Preferred itinerary pace: ${paceTxt}.`,
     rules
   ].join('\n');
 }
@@ -92,7 +106,6 @@ async function callOpenAI(messages, model) {
   const data = await res.json();
   return data?.choices?.[0]?.message?.content || '';
 }
-
 function tryParse(t) {
   try { return JSON.parse(t); } catch {}
   const a = t.match(/\{[\s\S]*\}/); if (a) { try { return JSON.parse(a[0]); } catch {} }
@@ -100,18 +113,13 @@ function tryParse(t) {
   return null;
 }
 
-/* ---------- Main generation ---------- */
-
 async function generate(body) {
-  // If no key, return sample so the app always works
   if (!process.env.OPENAI_API_KEY) return sample();
 
-  const prefs = body?.preferences || {};
   const origin = body?.origin || 'LHR';
-
-  // Default duration in prompt is 4 days; make API enforce the same by default.
-  const duration = prefs.duration || 'weekend-4d';
-  const prompt = buildPrompt({ origin, duration });
+  const p = body?.preferences || {};
+  const want = daysWanted(p.duration);
+  const prompt = buildPrompt(origin, p);
 
   const sys = { role: 'system', content: 'You are Trip Inspire. Provide concrete, place-anchored itineraries with varied days.' };
   const usr = { role: 'user', content: prompt };
@@ -123,20 +131,14 @@ async function generate(body) {
   const parsed = tryParse(content);
   if (!parsed || !Array.isArray(parsed.top3)) return sample();
 
-  // Map duration to desired days; DEFAULT to 4 if not provided.
-  const want = duration === 'two-weeks' ? 14 : (duration === 'weekend-4d' ? 4 : 7);
-
   const top3 = parsed.top3.map(trip => {
-    // slice to want, then pad if needed
-    const daysRaw = Array.isArray(trip.days) ? trip.days.slice(0, want) : [];
-    while (daysRaw.length < want) daysRaw.push({ morning:'TBD', afternoon:'TBD', evening:'TBD' });
-    const days = cleanItin(daysRaw);
-
+    const raw = Array.isArray(trip.days) ? trip.days.slice(0, want) : [];
+    while (raw.length < want) raw.push({ morning:'TBD', afternoon:'TBD', evening:'TBD' });
     return {
-      city: stripHints(trip.city || ''),
-      country: stripHints(trip.country || ''),
-      summary: stripHints(trip.summary || ''),
-      days
+      city: STRIP(trip.city || ''),
+      country: STRIP(trip.country || ''),
+      summary: STRIP(trip.summary || ''),
+      days: cleanItin(raw)
     };
   });
 
@@ -146,7 +148,7 @@ async function generate(body) {
 /* ---------- Route handlers ---------- */
 
 export async function GET() {
-  const data = await generate({});
+  const data = await generate({ preferences: { duration: 'mini-4d' } }); // default preview = 4-day
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
