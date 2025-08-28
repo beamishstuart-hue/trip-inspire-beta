@@ -28,6 +28,7 @@ function daysWanted(duration) {
 }
 
 function sample() {
+  // 3 cities so fallback is obvious
   return {
     top3: [
       {
@@ -51,6 +52,17 @@ function sample() {
           { morning:"Barceloneta boardwalk", afternoon:"El Born boutiques (Carrer de la Princesa)", evening:"Paella near Port Olímpic" },
           { morning:"Park Güell terrace", afternoon:"Gràcia squares (Plaça del Sol)", evening:"Vermut & pinchos at a bodega" }
         ])
+      },
+      {
+        city: "Porto",
+        country: "Portugal",
+        summary: "River bends, tiled facades, and cellar tastings along the Douro.",
+        days: cleanItin([
+          { morning:"Clérigos Tower steps", afternoon:"Livraria Lello browse", evening:"Ribeira riverfront dinner" },
+          { morning:"Bolhão Market pastries", afternoon:"São Bento azulejos", evening:"Port tasting in Vila Nova de Gaia" },
+          { morning:"Foz do Douro promenade", afternoon:"Serralves Museum & gardens", evening:"Sunset at Jardim do Morro" },
+          { morning:"Rua das Flores cafés", afternoon:"Palácio da Bolsa", evening:"Francesinha at a classic café" }
+        ])
       }
     ]
   };
@@ -72,7 +84,7 @@ async function callOpenAIWithTimeout(messages, model, timeoutMs = 7000) {
       body: JSON.stringify({
         model,
         temperature: 0.55,
-        max_tokens: 900,        // cap to keep responses fast
+        max_tokens: 900,
         messages
       })
     });
@@ -133,26 +145,37 @@ function buildPrompt(origin, p, wantDays) {
 /* ---------- Core ---------- */
 
 async function generate(body) {
-  if (!process.env.OPENAI_API_KEY) return sample();
-
   const origin = body?.origin || 'LHR';
   const p = body?.preferences || {};
   const want = daysWanted(p.duration);
 
+  // If no key, explicit meta so you can see it
+  if (!process.env.OPENAI_API_KEY) {
+    return { meta: { mode: 'sample', reason: 'no_openai_key' }, ...sample() };
+  }
+
   const sys = { role: 'system', content: 'You are Trip Inspire. Provide concrete, place-anchored itineraries with varied days.' };
   const usr = { role: 'user', content: buildPrompt(origin, p, want) };
 
-  // Single fast call with timeout + fallback model
-  let content;
-  try { content = await callOpenAIWithTimeout([sys, usr], PRIMARY, 7000); }
-  catch { try { content = await callOpenAIWithTimeout([sys, usr], FALLBACK, 7000); } catch { return sample(); } }
+  let content, source = 'live';
+  try {
+    content = await callOpenAIWithTimeout([sys, usr], PRIMARY, 7000);
+  } catch (e1) {
+    try {
+      content = await callOpenAIWithTimeout([sys, usr], FALLBACK, 7000);
+      source = 'live_fallback';
+    } catch (e2) {
+      return { meta: { mode: 'sample', reason: String(e2?.message || e1?.message || 'unknown') }, ...sample() };
+    }
+  }
 
   const parsed = tryParseJSON(content);
-  if (!parsed || !Array.isArray(parsed.top3) || parsed.top3.length === 0) return sample();
+  if (!parsed || !Array.isArray(parsed.top3) || parsed.top3.length === 0) {
+    return { meta: { mode: 'sample', reason: 'parse_failed' }, ...sample() };
+  }
 
   const top3 = parsed.top3.slice(0,3).map(trip => {
     let days = Array.isArray(trip.days) ? trip.days.slice(0, want) : [];
-    // final safety: if fewer than want, pad with specific-looking lines (no "TBD")
     while (days.length < want) {
       days.push({
         morning: "Local market visit (name one) and coffee on a pedestrian street",
@@ -168,10 +191,9 @@ async function generate(body) {
     };
   });
 
-  // If the model returned fewer than 3 destinations, top up from sample quickly (no extra API calls)
-  while (top3.length < 3) top3.push(sample().top3[0]);
+  while (top3.length < 3) top3.push(sample().top3[top3.length % 3]);
 
-  return { top3 };
+  return { meta: { mode: source }, top3 };
 }
 
 /* ---------- Routes ---------- */
