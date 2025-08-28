@@ -4,53 +4,27 @@ const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const PRIMARY = 'gpt-4o-mini';
 const FALLBACK = 'gpt-4o';
 
-/* -------------------- Helpers -------------------- */
+/* ---------- Helpers ---------- */
 
-const FILLERS = [
-  /optional afternoon stroll/gi,
-  /relaxing dinner/gi,
-  /resort time/gi,
-  /\bfree time\b/gi
-];
+const FILLERS = [/optional afternoon stroll/gi, /relaxing dinner/gi, /resort time/gi, /\bfree time\b/gi];
 
-const STRIP_HINTS = (s = "") =>
-  s.replace(/\s*\(add a named street\/venue\/landmark\)\s*/gi, '')
-   .replace(/\s*— plus a contrasting nearby activity\.?\s*/gi, '')
-   .replace(/\s+/g, ' ')
-   .trim();
+const STRIP = (s="") => s
+  .replace(/\s*\(add a named street\/venue\/landmark\)\s*/gi, '')
+  .replace(/\s*— plus a contrasting nearby activity\.?\s*/gi, '')
+  .replace(/\s+/g, ' ')
+  .trim();
 
 function cleanItin(days = []) {
-  const seen = new Set();
-  const used = new Set();
+  const seen = new Set(), used = new Set();
   const verbs = ['wander','sample','trace','duck into','people-watch','bar-hop','graze','meander','poke around','soak up'];
-
-  const rep = s => FILLERS.reduce((t, re) => t.replace(re, ''), (s || '')).trim();
-  const verb = s => {
-    const v = verbs.find(x => !used.has(x)) || 'explore';
-    used.add(v);
-    return (s || '').replace(/\b(stroll|relax|enjoy|explore)\b/i, v);
-  };
-  const dedupe = d => {
-    ['morning','afternoon','evening'].forEach(k => {
-      const key = k + ':' + (d[k] || '').toLowerCase().slice(0, 80);
-      if (seen.has(key)) d[k] += ' — choose a contrasting nearby alternative';
-      seen.add(key);
-    });
-    return d;
-  };
-
-  return days.map(d => dedupe({
-    morning: STRIP_HINTS(verb(rep(d.morning))),
-    afternoon: STRIP_HINTS(verb(rep(d.afternoon))),
-    evening: STRIP_HINTS(verb(rep(d.evening))),
-  }));
+  const rep  = s => FILLERS.reduce((t, re) => t.replace(re, ''), s || '').trim();
+  const verb = s => { const v = verbs.find(x => !used.has(x)) || 'explore'; used.add(v); return (s || '').replace(/\b(stroll|relax|enjoy|explore)\b/i, v); };
+  const dedupe = d => { ['morning','afternoon','evening'].forEach(k => { const key = k+':'+(d[k]||'').toLowerCase().slice(0,80); if (seen.has(key)) d[k]+=''; seen.add(key); }); return d; };
+  return days.map(d => dedupe({ morning: STRIP(verb(rep(d.morning))), afternoon: STRIP(verb(rep(d.afternoon))), evening: STRIP(verb(rep(d.evening))) }));
 }
 
 function daysWanted(duration) {
-  return duration === 'weekend-2d' ? 2
-    : duration === 'mini-4d' ? 4
-    : duration === 'two-weeks' ? 14
-    : 7; // week-7d default
+  return duration==='weekend-2d' ? 2 : duration==='mini-4d' ? 4 : duration==='two-weeks' ? 14 : 7;
 }
 
 function sample() {
@@ -66,30 +40,48 @@ function sample() {
           { morning:"Cascais boardwalk from Praia da Rainha", afternoon:"Boca do Inferno viewpoint", evening:"Sunset at Miradouro de Santa Catarina" },
           { morning:"LX Factory (Rua Rodrigues de Faria)", afternoon:"Time Out Market tasting counters", evening:"Ribeira waterfront stroll" }
         ])
+      },
+      {
+        city: "Barcelona",
+        country: "Spain",
+        summary: "Gaudí icons, Mediterranean evenings and market-to-table bites; perfect mini-break.",
+        days: cleanItin([
+          { morning:"La Boqueria (La Rambla 91)", afternoon:"Gothic Quarter alleys to Plaça del Rei", evening:"Tapas crawl on Carrer de Blai" },
+          { morning:"Sagrada Família (prebook AM slot)", afternoon:"Passeig de Gràcia façades (Casa Batlló)", evening:"Sunset at Bunkers del Carmel" },
+          { morning:"Barceloneta boardwalk", afternoon:"El Born boutiques (Carrer de la Princesa)", evening:"Paella near Port Olímpic" },
+          { morning:"Park Güell terrace", afternoon:"Gràcia squares (Plaça del Sol)", evening:"Vermut & pinchos at a bodega" }
+        ])
       }
     ]
   };
 }
 
-/* -------------------- OpenAI -------------------- */
+/* ---------- OpenAI with hard timeout ---------- */
 
-async function callOpenAI(messages, model) {
-  const res = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.6,
-      max_tokens: 1600,
-      messages
-    })
-  });
-  if (!res.ok) throw new Error(`OpenAI ${model} ${res.status}`);
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content || '';
+async function callOpenAIWithTimeout(messages, model, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(new Error('Timeout')), timeoutMs);
+  try {
+    const res = await fetch(OPENAI_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.55,
+        max_tokens: 900,        // cap to keep responses fast
+        messages
+      })
+    });
+    if (!res.ok) throw new Error(`OpenAI ${model} ${res.status}`);
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content || '';
+  } finally {
+    clearTimeout(to);
+  }
 }
 
 function tryParseJSON(text) {
@@ -101,62 +93,30 @@ function tryParseJSON(text) {
   return null;
 }
 
-/* -------------------- Prompt builders -------------------- */
+/* ---------- Prompt ---------- */
 
-function buildMainPrompt(origin, p, wantDays) {
-  const hours = Math.min(Math.max(Number(p.flight_time_hours) || 8, 1), 20);
-  const groupTxt = p.group==='family'?'Family with kids'
-    : p.group==='friends'?'Group of friends'
-    : p.group==='couple'?'Couple'
-    : 'Solo';
-
-  const styleMap = {
-    adventure:'Adventure & outdoor activities',
-    relaxation:'Relaxation & beach',
-    cultural:'Cultural & historical',
-    luxury:'Luxury & fine dining',
-    budget:'Budget & backpacking'
-  };
+function buildPrompt(origin, p, wantDays) {
+  const hours = Math.min(Math.max(Number(p.flight_time_hours)||8,1),20);
+  const groupTxt = p.group==='family'?'Family with kids' : p.group==='friends'?'Group of friends' : p.group==='couple'?'Couple' : 'Solo';
+  const styleMap = { adventure:'Adventure & outdoor activities', relaxation:'Relaxation & beach', cultural:'Cultural & historical', luxury:'Luxury & fine dining', budget:'Budget & backpacking' };
   const styleTxt = styleMap[p.style] || 'Mixed';
-
-  const interestsTxt = Array.isArray(p.interests) && p.interests.length
-    ? p.interests.join(', ')
-    : 'surprise me';
-
+  const interestsTxt = Array.isArray(p.interests)&&p.interests.length ? p.interests.join(', ') : 'surprise me';
   const seasonTxt = p.season==='flexible' ? 'Flexible timing'
     : p.season==='spring' ? 'Spring (Mar–May)'
     : p.season==='summer' ? 'Summer (Jun–Aug)'
-    : p.season==='autumn' ? 'Autumn (Sep–Nov)'
-    : 'Winter (Dec–Feb)';
-
-  const paceTxt = p.pace==='total' ? 'Total relaxation'
-    : p.pace==='relaxed' ? 'A few relaxing activities'
-    : p.pace==='daily' ? 'Different activity every day'
-    : 'Packed schedule';
+    : p.season==='autumn' ? 'Autumn (Sep–Nov)' : 'Winter (Dec–Feb)';
+  const paceTxt = p.pace==='total' ? 'Total relaxation' : p.pace==='relaxed' ? 'A few relaxing activities' : p.pace==='daily' ? 'Different activity every day' : 'Packed schedule';
 
   const rules =
-`HARD RULES (CRITICAL):
-- Return exactly THREE (3) distinct destination objects in "top3".
-- For each destination, produce EXACTLY ${wantDays} days. No placeholders like "TBD".
-- No day repeats the same morning/afternoon/evening pattern across days.
-- EACH day contains 1–2 named anchors (street/venue/landmark) and 1 micro-detail (dish, view, material, sound).
-- Add 1 local quirk per trip (etiquette, transit trick, closing hour).
-- Include constraints: common opening hours when widely known, realistic travel times, and one rain fallback.
-- Avoid filler phrases: "optional stroll", "relaxing dinner", "free time at resort".
+`CRITICAL RULES:
+- Return exactly THREE destinations in "top3".
+- Each destination has EXACTLY ${wantDays} days (no "TBD" or placeholders).
+- NO filler phrases: "optional stroll", "relaxing dinner", "free time at resort".
+- EACH day must include 1–2 named anchors (street/venue/landmark) + 1 micro-detail (dish, view, material, sound).
 - Vary verbs; don’t reuse stroll/relax/enjoy/explore.
-- OUTPUT JSON ONLY in this exact shape:
-{
-  "top3": [
-    {
-      "city": "City",
-      "country": "Country",
-      "summary": "1–2 lines why this fits",
-      "days": [
-        { "morning": "...", "afternoon": "...", "evening": "..." }
-      ]
-    }
-  ]
-}`;
+- Keep answers concise; TOTAL reply under ~600 tokens.
+- OUTPUT JSON ONLY:
+{"top3":[{"city":"City","country":"Country","summary":"1–2 lines","days":[{"morning":"...","afternoon":"...","evening":"..."}]}]}`;
 
   return [
     `Origin: ${origin}. Non-stop flight time ≤ ~${hours} hours from origin.`,
@@ -170,30 +130,7 @@ function buildMainPrompt(origin, p, wantDays) {
   ].join('\n');
 }
 
-function buildRepairDaysPrompt(city, country, haveDays, needDays) {
-  return [
-    `Destination: ${city}${country ? ', ' + country : ''}`,
-    `You previously returned ${haveDays} days. I require EXACTLY ${haveDays + needDays} days total.`,
-    `Return ONLY the MISSING ${needDays} days in JSON array (no prose):`,
-    `[{ "morning":"...", "afternoon":"...", "evening":"..." }]`,
-    `Rules:`,
-    `- No placeholders.`,
-    `- Include named anchors and a micro-detail per day.`,
-    `- Avoid filler phrases and vary verbs.`,
-  ].join('\n');
-}
-
-function buildRepairTopPrompt(origin, p, haveCount, needCount, wantDays) {
-  return [
-    `Origin: ${origin}. Same user constraints as before.`,
-    `You returned only ${haveCount} destinations. I require EXACTLY ${haveCount + needCount} in total.`,
-    `Return ONLY the missing ${needCount} destinations as JSON array under "top3" (no prose):`,
-    `{"top3":[{ "city":"...", "country":"...", "summary":"...", "days":[{ "morning":"...","afternoon":"...","evening":"..." }] }]}`,
-    `Each new destination must have EXACTLY ${wantDays} days and follow the same hard rules (named anchors, micro-details, variety, no filler).`
-  ].join('\n');
-}
-
-/* -------------------- Core generation -------------------- */
+/* ---------- Core ---------- */
 
 async function generate(body) {
   if (!process.env.OPENAI_API_KEY) return sample();
@@ -202,83 +139,47 @@ async function generate(body) {
   const p = body?.preferences || {};
   const want = daysWanted(p.duration);
 
-  const system = { role: 'system', content: 'You are Trip Inspire. Provide concrete, place-anchored itineraries with varied days.' };
-  const user   = { role: 'user',   content: buildMainPrompt(origin, p, want) };
+  const sys = { role: 'system', content: 'You are Trip Inspire. Provide concrete, place-anchored itineraries with varied days.' };
+  const usr = { role: 'user', content: buildPrompt(origin, p, want) };
 
-  // 1) Main call
+  // Single fast call with timeout + fallback model
   let content;
-  try { content = await callOpenAI([system, user], PRIMARY); }
-  catch { content = await callOpenAI([system, user], FALLBACK); }
+  try { content = await callOpenAIWithTimeout([sys, usr], PRIMARY, 7000); }
+  catch { try { content = await callOpenAIWithTimeout([sys, usr], FALLBACK, 7000); } catch { return sample(); } }
 
-  let parsed = tryParseJSON(content);
-  if (!parsed || !Array.isArray(parsed.top3)) parsed = { top3: [] };
+  const parsed = tryParseJSON(content);
+  if (!parsed || !Array.isArray(parsed.top3) || parsed.top3.length === 0) return sample();
 
-  // 2) Top-up missing destinations if fewer than 3
-  if (parsed.top3.length < 3) {
-    const need = 3 - parsed.top3.length;
-    try {
-      const repairUser = { role: 'user', content: buildRepairTopPrompt(origin, p, parsed.top3.length, need, want) };
-      const repaired = await callOpenAI([system, repairUser], PRIMARY).catch(async () =>
-        await callOpenAI([system, repairUser], FALLBACK)
-      );
-      const more = tryParseJSON(repaired);
-      if (more && Array.isArray(more.top3)) {
-        parsed.top3 = [...parsed.top3, ...more.top3].slice(0, 3);
-      }
-    } catch { /* ignore; we’ll fall back later if needed */ }
-  }
-
-  if (parsed.top3.length === 0) return sample();
-
-  // 3) Normalize each destination; if too few days, repair days
-  const normalized = [];
-  for (const trip of parsed.top3.slice(0, 3)) {
-    const city = STRIP_HINTS(trip.city || '');
-    const country = STRIP_HINTS(trip.country || '');
-    const summary = STRIP_HINTS(trip.summary || '');
-
+  const top3 = parsed.top3.slice(0,3).map(trip => {
     let days = Array.isArray(trip.days) ? trip.days.slice(0, want) : [];
-
-    if (days.length < want) {
-      const needDays = want - days.length;
-      try {
-        const repairUser = { role: 'user', content: buildRepairDaysPrompt(city || 'Destination', country || '', days.length, needDays) };
-        const repaired = await callOpenAI([system, repairUser], PRIMARY).catch(async () =>
-          await callOpenAI([system, repairUser], FALLBACK)
-        );
-        const arr = tryParseJSON(repaired);
-        if (Array.isArray(arr)) {
-          days = [...days, ...arr].slice(0, want);
-        }
-      } catch { /* ignore */ }
-    }
-
+    // final safety: if fewer than want, pad with specific-looking lines (no "TBD")
     while (days.length < want) {
       days.push({
-        morning: "Local market visit (name the market) and coffee on a pedestrian street",
-        afternoon: "Neighborhood walk with a named viewpoint or museum (add the venue name)",
-        evening: "Dinner at a typical spot (name one) and a sunset viewpoint (name it)"
+        morning: "Local market visit (name one) and coffee on a pedestrian street",
+        afternoon: "Named museum or viewpoint in the historic center",
+        evening: "Dinner at a typical spot (name it) and a sunset viewpoint (name it)"
       });
     }
-
-    normalized.push({
-      city,
-      country,
-      summary,
+    return {
+      city: STRIP(trip.city || ''),
+      country: STRIP(trip.country || ''),
+      summary: STRIP(trip.summary || ''),
       days: cleanItin(days)
-    });
-  }
+    };
+  });
 
-  return { top3: normalized };
+  // If the model returned fewer than 3 destinations, top up from sample quickly (no extra API calls)
+  while (top3.length < 3) top3.push(sample().top3[0]);
+
+  return { top3 };
 }
 
-/* -------------------- Route handlers -------------------- */
+/* ---------- Routes ---------- */
 
 export async function GET() {
   const data = await generate({ preferences: { duration: 'mini-4d' } });
   return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
-
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const data = await generate(body);
