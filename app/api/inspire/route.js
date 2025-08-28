@@ -159,10 +159,10 @@ async function generate(body) {
 
   let content, source = 'live';
   try {
-    content = await callOpenAIWithTimeout([sys, usr], PRIMARY, 7000);
+    content = await callOpenAIWithTimeout([sys, usr], PRIMARY, 10000);
   } catch (e1) {
     try {
-      content = await callOpenAIWithTimeout([sys, usr], FALLBACK, 7000);
+      content = await callOpenAIWithTimeout([sys, usr], FALLBACK, 10000);
       source = 'live_fallback';
     } catch (e2) {
       return { meta: { mode: 'sample', reason: String(e2?.message || e1?.message || 'unknown') }, ...sample() };
