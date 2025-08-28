@@ -136,7 +136,8 @@ function buildMainPrompt(origin, p, wantDays) {
 
   const rules =
 `HARD RULES (CRITICAL):
-- Produce EXACTLY ${wantDays} days per destination. No placeholders like "TBD".
+- Return exactly THREE (3) distinct destination objects in "top3".
+- For each destination, produce EXACTLY ${wantDays} days. No placeholders like "TBD".
 - No day repeats the same morning/afternoon/evening pattern across days.
 - EACH day contains 1–2 named anchors (street/venue/landmark) and 1 micro-detail (dish, view, material, sound).
 - Add 1 local quirk per trip (etiquette, transit trick, closing hour).
@@ -169,24 +170,32 @@ function buildMainPrompt(origin, p, wantDays) {
   ].join('\n');
 }
 
-function buildRepairPrompt(city, country, haveDays, needDays) {
-  // Ask ONLY for the missing days, preserving variety & anchors.
+function buildRepairDaysPrompt(city, country, haveDays, needDays) {
   return [
     `Destination: ${city}${country ? ', ' + country : ''}`,
     `You previously returned ${haveDays} days. I require EXACTLY ${haveDays + needDays} days total.`,
-    `Return ONLY the MISSING ${needDays} days in JSON array form, no prose:`,
+    `Return ONLY the MISSING ${needDays} days in JSON array (no prose):`,
     `[{ "morning":"...", "afternoon":"...", "evening":"..." }]`,
     `Rules:`,
-    `- No placeholders like "TBD".`,
-    `- Include named anchors (streets/venues/landmarks) and a micro-detail per day.`,
+    `- No placeholders.`,
+    `- Include named anchors and a micro-detail per day.`,
     `- Avoid filler phrases and vary verbs.`,
+  ].join('\n');
+}
+
+function buildRepairTopPrompt(origin, p, haveCount, needCount, wantDays) {
+  return [
+    `Origin: ${origin}. Same user constraints as before.`,
+    `You returned only ${haveCount} destinations. I require EXACTLY ${haveCount + needCount} in total.`,
+    `Return ONLY the missing ${needCount} destinations as JSON array under "top3" (no prose):`,
+    `{"top3":[{ "city":"...", "country":"...", "summary":"...", "days":[{ "morning":"...","afternoon":"...","evening":"..." }] }]}`,
+    `Each new destination must have EXACTLY ${wantDays} days and follow the same hard rules (named anchors, micro-details, variety, no filler).`
   ].join('\n');
 }
 
 /* -------------------- Core generation -------------------- */
 
 async function generate(body) {
-  // Always return something, even without a key:
   if (!process.env.OPENAI_API_KEY) return sample();
 
   const origin = body?.origin || 'LHR';
@@ -201,12 +210,27 @@ async function generate(body) {
   try { content = await callOpenAI([system, user], PRIMARY); }
   catch { content = await callOpenAI([system, user], FALLBACK); }
 
-  const parsed = tryParseJSON(content);
-  if (!parsed || !Array.isArray(parsed.top3) || parsed.top3.length === 0) {
-    return sample();
+  let parsed = tryParseJSON(content);
+  if (!parsed || !Array.isArray(parsed.top3)) parsed = { top3: [] };
+
+  // 2) Top-up missing destinations if fewer than 3
+  if (parsed.top3.length < 3) {
+    const need = 3 - parsed.top3.length;
+    try {
+      const repairUser = { role: 'user', content: buildRepairTopPrompt(origin, p, parsed.top3.length, need, want) };
+      const repaired = await callOpenAI([system, repairUser], PRIMARY).catch(async () =>
+        await callOpenAI([system, repairUser], FALLBACK)
+      );
+      const more = tryParseJSON(repaired);
+      if (more && Array.isArray(more.top3)) {
+        parsed.top3 = [...parsed.top3, ...more.top3].slice(0, 3);
+      }
+    } catch { /* ignore; we’ll fall back later if needed */ }
   }
 
-  // 2) Normalize each destination; if too few days, do a repair call to fill the gap
+  if (parsed.top3.length === 0) return sample();
+
+  // 3) Normalize each destination; if too few days, repair days
   const normalized = [];
   for (const trip of parsed.top3.slice(0, 3)) {
     const city = STRIP_HINTS(trip.city || '');
@@ -216,22 +240,19 @@ async function generate(body) {
     let days = Array.isArray(trip.days) ? trip.days.slice(0, want) : [];
 
     if (days.length < want) {
-      const need = want - days.length;
+      const needDays = want - days.length;
       try {
-        const repairUser = { role: 'user', content: buildRepairPrompt(city || 'Destination', country || '', days.length, need) };
-        const repaired = await callOpenAI([system, repairUser], PRIMARY).catch(async () => {
-          return await callOpenAI([system, repairUser], FALLBACK);
-        });
+        const repairUser = { role: 'user', content: buildRepairDaysPrompt(city || 'Destination', country || '', days.length, needDays) };
+        const repaired = await callOpenAI([system, repairUser], PRIMARY).catch(async () =>
+          await callOpenAI([system, repairUser], FALLBACK)
+        );
         const arr = tryParseJSON(repaired);
         if (Array.isArray(arr)) {
           days = [...days, ...arr].slice(0, want);
         }
-      } catch {
-        // If repair fails, we'll pad below.
-      }
+      } catch { /* ignore */ }
     }
 
-    // Final safety: pad with simple but specific-sounding items (avoid "TBD")
     while (days.length < want) {
       days.push({
         morning: "Local market visit (name the market) and coffee on a pedestrian street",
@@ -254,7 +275,6 @@ async function generate(body) {
 /* -------------------- Route handlers -------------------- */
 
 export async function GET() {
-  // Default preview = 4-day mini break so the endpoint is demonstrably working
   const data = await generate({ preferences: { duration: 'mini-4d' } });
   return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
