@@ -1,4 +1,8 @@
-export const metadata = { title: 'Trip Inspire', description: 'Top 3 destination ideas' };
+export const metadata = {
+  title: 'Trip Inspire',
+  description: 'Top 3 destination ideas tailored to you',
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
