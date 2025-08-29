@@ -3,81 +3,52 @@ import React, { useState } from 'react';
 
 /* --- tiny helper: map country -> emoji flag --- */
 const ISO2 = {
-  portugal: 'PT',
-  spain: 'ES',
-  italy: 'IT',
-  france: 'FR',
-  'united kingdom': 'GB',
-  ireland: 'IE',
-  germany: 'DE',
-  netherlands: 'NL',
-  belgium: 'BE',
-  switzerland: 'CH',
-  austria: 'AT',
-  croatia: 'HR',
-  greece: 'GR',
-  'czech republic': 'CZ',
-  'united states': 'US',
-  usa: 'US',
-  canada: 'CA',
-  mexico: 'MX',
-  japan: 'JP',
-  thailand: 'TH',
-  indonesia: 'ID',
-  'united arab emirates': 'AE',
-  morocco: 'MA',
-  turkey: 'TR',
-  iceland: 'IS',
-  norway: 'NO',
-  sweden: 'SE',
-  finland: 'FI',
-  denmark: 'DK',
-  poland: 'PL',
-  hungary: 'HU',
-  romania: 'RO',
-  bulgaria: 'BG',
-  malta: 'MT',
-  cyprus: 'CY',
-  'dominican republic': 'DO',
-  brazil: 'BR',
-  argentina: 'AR',
-  chile: 'CL',
-  peru: 'PE',
-  colombia: 'CO',
-  australia: 'AU',
-  newZealand: 'NZ',
-  'new zealand': 'NZ',
-  egypt: 'EG',
-  kenya: 'KE',
-  tanzania: 'TZ',
-  southAfrica: 'ZA',
-  'south africa': 'ZA',
-  'saudi arabia': 'SA',
-  qatar: 'QA',
-  oman: 'OM',
-  'costa rica': 'CR',
-  'united kingdom (uk)': 'GB'
+  portugal: 'PT', spain: 'ES', italy: 'IT', france: 'FR', 'united kingdom': 'GB', ireland: 'IE',
+  germany: 'DE', netherlands: 'NL', belgium: 'BE', switzerland: 'CH', austria: 'AT', croatia: 'HR',
+  greece: 'GR', 'czech republic': 'CZ', 'united states': 'US', usa: 'US', canada: 'CA', mexico: 'MX',
+  japan: 'JP', thailand: 'TH', indonesia: 'ID', 'united arab emirates': 'AE', morocco: 'MA', turkey: 'TR',
+  iceland: 'IS', norway: 'NO', sweden: 'SE', finland: 'FI', denmark: 'DK', poland: 'PL', hungary: 'HU',
+  romania: 'RO', bulgaria: 'BG', malta: 'MT', cyprus: 'CY', 'dominican republic': 'DO', brazil: 'BR',
+  argentina: 'AR', chile: 'CL', peru: 'PE', colombia: 'CO', australia: 'AU', 'new zealand': 'NZ',
+  egypt: 'EG', kenya: 'KE', tanzania: 'TZ', 'south africa': 'ZA', 'saudi arabia': 'SA', qatar: 'QA',
+  oman: 'OM', 'costa rica': 'CR', 'united kingdom (uk)': 'GB'
 };
 const flagFor = (country = '') => {
   const c = (country || '').trim().toLowerCase();
   const code = ISO2[c];
   if (!code) return '🌍';
-  return code
-    .toUpperCase()
-    .replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0)));
+  return code.toUpperCase().replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0)));
 };
 
 /* --- format a mailto body from an itinerary --- */
-function buildEmail({ city, country, days }) {
+function buildItineraryEmail({ city, country, days }) {
   const title = `Trip plan – ${city}${country ? ', ' + country : ''}`;
   const lines = [];
-  lines.push(title);
-  lines.push(''); // blank
+  lines.push(title, '');
   days.forEach((d, i) => {
     lines.push(`Day ${i + 1}`);
-    if (d.morning) lines.push(`  • Morning: ${d.morning}`);
+    if (d.morning)   lines.push(`  • Morning: ${d.morning}`);
     if (d.afternoon) lines.push(`  • Afternoon: ${d.afternoon}`);
-    if (d.evening) lines.push(`  • Evening: ${d.evening}`);
+    if (d.evening)   lines.push(`  • Evening: ${d.evening}`);
+    lines.push('');
+  });
+  lines.push('— Sent from The Edit Travel Co – Travel Inspiration Assistant');
+  const body = encodeURIComponent(lines.join('\n'));
+  const subject = encodeURIComponent(title);
+  return `mailto:?subject=${subject}&body=${body}`;
+}
+
+/* --- format a mailto body for Top 5 highlights (no itineraries) --- */
+function buildTop5Email(top5 = []) {
+  const title = 'My Top 5 trip ideas';
+  const lines = [];
+  lines.push(title, '');
+  top5.forEach((d, i) => {
+    lines.push(`${i + 1}. ${d.city}${d.country ? ', ' + d.country : ''}`);
+    if (d.summary) lines.push(`   – ${d.summary}`);
+    if (Array.isArray(d.highlights)) {
+      d.highlights.forEach(h => lines.push(`   • ${h}`));
+    }
     lines.push('');
   });
   lines.push('— Sent from The Edit Travel Co – Travel Inspiration Assistant');
@@ -116,7 +87,8 @@ export default function QuizClient() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (Array.isArray(data.top5)) {
-        setTop5(data.top5);
+        // ensure each card has its own loading flags
+        setTop5(data.top5.map(x => ({ ...x, _loading7:false, _loading14:false })));
       } else {
         setTop5([]);
       }
@@ -133,7 +105,7 @@ export default function QuizClient() {
 
     const duration = daysLabel === '14' ? 'two-weeks' : 'week-7d';
 
-    // collect current prefs again to keep consistency
+    // collect prefs from the form
     const form = document.querySelector('form');
     const fd = new FormData(form);
     const prefs = {
@@ -144,8 +116,13 @@ export default function QuizClient() {
       season: fd.get('season'),
     };
 
+    // set per-button loading
     const prev = [...top5];
-    prev[idx] = { ...card, _loading: true };
+    prev[idx] = { 
+      ...card, 
+      _loading7: daysLabel === '7', 
+      _loading14: daysLabel === '14' 
+    };
     setTop5(prev);
 
     try {
@@ -164,13 +141,19 @@ export default function QuizClient() {
       const next = [...prev];
       next[idx] = {
         ...card,
-        _loading: false,
+        _loading7: false,
+        _loading14: false,
         days: Array.isArray(data.days) ? data.days : []
       };
       setTop5(next);
     } catch (e) {
       const next = [...top5];
-      next[idx] = { ...card, _loading:false, _error: e.message || 'Failed to build itinerary' };
+      next[idx] = { 
+        ...card, 
+        _loading7:false, 
+        _loading14:false, 
+        _error: e.message || 'Failed to build itinerary' 
+      };
       setTop5(next);
     }
   }
@@ -258,6 +241,18 @@ export default function QuizClient() {
 
       {error && <p style={{marginTop:16, color:'crimson'}}>{error}</p>}
 
+      {/* Share Top 5 (only when we have highlights and before any itinerary is built) */}
+      {top5.length > 0 && top5.every(d => !Array.isArray(d.days)) && (
+        <div style={{marginTop:16}}>
+          <a
+            href={buildTop5Email(top5)}
+            style={{display:'inline-block', padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
+          >
+            📧 Email these Top 5
+          </a>
+        </div>
+      )}
+
       <div style={{display:'grid', gap:16, marginTop:24}}>
         {top5.map((d, i)=>(
           <div key={`${d.city}-${i}`} style={{background:'var(--card)', padding:16, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
@@ -274,43 +269,55 @@ export default function QuizClient() {
             )}
 
             {Array.isArray(d.days) && (
-  <div style={{marginTop:12, display:'grid', gap:8}}>
-    {d.days.map((day,di)=>(
-      <div key={di} style={{padding:'8px 10px', background:'#fafafa', borderRadius:8}}>
-        <strong>Day {di+1}</strong><br/>
-        {day.morning && <>Morning: {day.morning}<br/></>}
-        {day.afternoon && <>Afternoon: {day.afternoon}<br/></>}
-        {day.evening && <>Evening: {day.evening}</>}
-      </div>
-    ))}
-    {/* Email CTA */}
-    <div style={{display:'flex', gap:12, marginTop:8}}>
-      <a
-        href={buildEmail({ city: d.city, country: d.country, days: d.days })}
-        style={{flex:1, textAlign:'center', padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
-      >
-        📧 Email this plan
-      </a>
-    </div>
-  </div>
-)}
+              <div style={{marginTop:12, display:'grid', gap:8}}>
+                {d.days.map((day,di)=>(
+                  <div key={di} style={{padding:'8px 10px', background:'#fafafa', borderRadius:8}}>
+                    <strong>Day {di+1}</strong><br/>
+                    {day.morning && <>Morning: {day.morning}<br/></>}
+                    {day.afternoon && <>Afternoon: {day.afternoon}<br/></>}
+                    {day.evening && <>Evening: {day.evening}</>}
+                  </div>
+                ))}
+                {/* Email itinerary CTA */}
+                <div style={{display:'flex', gap:12, marginTop:8}}>
+                  <a
+                    href={buildItineraryEmail({ city: d.city, country: d.country, days: d.days })}
+                    style={{flex:1, textAlign:'center', padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
+                  >
+                    📧 Email this plan
+                  </a>
+                </div>
+              </div>
+            )}
 
             {!d.days && (
               <div style={{marginTop:12, display:'flex', gap:12}}>
-                {d._error && <p style={{color:'crimson'}}>{d._error}</p>}
+                {/* 7-day button */}
                 <button
                   onClick={()=>buildItinerary(i, '7')}
-                  disabled={d._loading}
-                  style={{flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:d._loading?'#ddd':'#111', color:'#fff', cursor:d._loading?'default':'pointer'}}
+                  disabled={d._loading14 || d._loading7}
+                  style={{
+                    flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd',
+                    background: d._loading7 ? '#111' : (d._loading14 ? '#ddd' : '#111'),
+                    color:'#fff', cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+                    opacity: d._loading14 ? 0.6 : 1
+                  }}
                 >
-                  {d._loading ? 'Building…' : 'Build 7-day itinerary'}
+                  {d._loading7 ? 'Building…' : 'Build 7-day itinerary'}
                 </button>
+
+                {/* 14-day button */}
                 <button
                   onClick={()=>buildItinerary(i, '14')}
-                  disabled={d._loading}
-                  style={{flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:d._loading?'#ddd':'#444', color:'#fff', cursor:d._loading?'default':'pointer'}}
+                  disabled={d._loading14 || d._loading7}
+                  style={{
+                    flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd',
+                    background: d._loading14 ? '#444' : (d._loading7 ? '#ddd' : '#444'),
+                    color:'#fff', cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+                    opacity: d._loading7 ? 0.6 : 1
+                  }}
                 >
-                  {d._loading ? 'Building…' : 'Build 14-day itinerary'}
+                  {d._loading14 ? 'Building…' : 'Build 14-day itinerary'}
                 </button>
               </div>
             )}
