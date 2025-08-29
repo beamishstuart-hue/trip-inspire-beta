@@ -84,7 +84,6 @@ const AVOID = new Set([
 ]);
 
 function postProcessTop5(list = []) {
-  // sanitize & trim
   const cleaned = list
     .map(x => ({
       city: STRIP(x.city || ''),
@@ -94,36 +93,20 @@ function postProcessTop5(list = []) {
     }))
     .filter(x => x.city && x.country && x.highlights.length === 3);
 
-  // prefer different countries, and avoid common cities unless needed
-  const seenCountries = new Set();
+  const seen = new Set();
   const unique = [];
-  // First pass: pick those not in avoid AND new country
   for (const t of cleaned) {
-    const key = (t.city || '').toLowerCase();
-    const ctry = (t.country || '').toLowerCase();
-    if (!seenCountries.has(ctry) && !AVOID.has(key)) {
+    const key = `${t.city.toLowerCase()}-${t.country.toLowerCase()}`;
+    if (!seen.has(key)) {
       unique.push(t);
-      seenCountries.add(ctry);
+      seen.add(key);
     }
-  }
-  // Second pass: fill remaining with non-avoid even if same country
-  for (const t of cleaned) {
     if (unique.length >= 5) break;
-    const key = (t.city || '').toLowerCase();
-    const ctry = (t.country || '').toLowerCase();
-    if (!AVOID.has(key)) {
-      unique.push(t);
-      seenCountries.add(ctry);
-    }
-  }
-  // Final pass: if still short, allow avoid list to fill to 5
-  for (const t of cleaned) {
-    if (unique.length >= 5) break;
-    unique.push(t);
   }
 
   return unique.slice(0,5);
 }
+
 
 /* --------------- Core --------------- */
 
