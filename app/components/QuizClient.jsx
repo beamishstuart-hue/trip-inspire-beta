@@ -1,6 +1,91 @@
 'use client';
 import React, { useState } from 'react';
 
+/* --- tiny helper: map country -> emoji flag --- */
+const ISO2 = {
+  portugal: 'PT',
+  spain: 'ES',
+  italy: 'IT',
+  france: 'FR',
+  'united kingdom': 'GB',
+  ireland: 'IE',
+  germany: 'DE',
+  netherlands: 'NL',
+  belgium: 'BE',
+  switzerland: 'CH',
+  austria: 'AT',
+  croatia: 'HR',
+  greece: 'GR',
+  'czech republic': 'CZ',
+  'united states': 'US',
+  usa: 'US',
+  canada: 'CA',
+  mexico: 'MX',
+  japan: 'JP',
+  thailand: 'TH',
+  indonesia: 'ID',
+  'united arab emirates': 'AE',
+  morocco: 'MA',
+  turkey: 'TR',
+  iceland: 'IS',
+  norway: 'NO',
+  sweden: 'SE',
+  finland: 'FI',
+  denmark: 'DK',
+  poland: 'PL',
+  hungary: 'HU',
+  romania: 'RO',
+  bulgaria: 'BG',
+  malta: 'MT',
+  cyprus: 'CY',
+  'dominican republic': 'DO',
+  brazil: 'BR',
+  argentina: 'AR',
+  chile: 'CL',
+  peru: 'PE',
+  colombia: 'CO',
+  australia: 'AU',
+  newZealand: 'NZ',
+  'new zealand': 'NZ',
+  egypt: 'EG',
+  kenya: 'KE',
+  tanzania: 'TZ',
+  southAfrica: 'ZA',
+  'south africa': 'ZA',
+  'saudi arabia': 'SA',
+  qatar: 'QA',
+  oman: 'OM',
+  'costa rica': 'CR',
+  'united kingdom (uk)': 'GB'
+};
+const flagFor = (country = '') => {
+  const c = (country || '').trim().toLowerCase();
+  const code = ISO2[c];
+  if (!code) return '🌍';
+  return code
+    .toUpperCase()
+    .replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0)));
+};
+
+/* --- format a mailto body from an itinerary --- */
+function buildEmail({ city, country, days }) {
+  const title = `Trip plan – ${city}${country ? ', ' + country : ''}`;
+  const lines = [];
+  lines.push(title);
+  lines.push(''); // blank
+  days.forEach((d, i) => {
+    lines.push(`Day ${i + 1}`);
+    if (d.morning) lines.push(`  • Morning: ${d.morning}`);
+    if (d.afternoon) lines.push(`  • Afternoon: ${d.afternoon}`);
+    if (d.evening) lines.push(`  • Evening: ${d.evening}`);
+    lines.push('');
+  });
+  lines.push('— Sent from The Edit Travel Co – Travel Inspiration Assistant');
+  const body = encodeURIComponent(lines.join('\n'));
+  const subject = encodeURIComponent(title);
+  return `mailto:?subject=${subject}&body=${body}`;
+}
+
 export default function QuizClient() {
   const [loading, setLoading] = useState(false);
   const [top5, setTop5] = useState([]);
@@ -48,6 +133,7 @@ export default function QuizClient() {
 
     const duration = daysLabel === '14' ? 'two-weeks' : 'week-7d';
 
+    // collect current prefs again to keep consistency
     const form = document.querySelector('form');
     const fd = new FormData(form);
     const prefs = {
@@ -175,7 +261,10 @@ export default function QuizClient() {
       <div style={{display:'grid', gap:16, marginTop:24}}>
         {top5.map((d, i)=>(
           <div key={`${d.city}-${i}`} style={{background:'var(--card)', padding:16, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
-            <h2 style={{marginTop:0}}>{d.city}{d.country ? `, ${d.country}` : ''}</h2>
+            <h2 style={{marginTop:0}}>
+              <span style={{marginRight:8}}>{flagFor(d.country)}</span>
+              {d.city}{d.country ? `, ${d.country}` : ''}
+            </h2>
             {d.summary && <p style={{fontStyle:'italic'}}>{d.summary}</p>}
 
             {!d.days && Array.isArray(d.highlights) && (
@@ -194,6 +283,15 @@ export default function QuizClient() {
                     {day.evening && <>🌙 Evening: {day.evening}</>}
                   </div>
                 ))}
+                {/* Email CTA */}
+                <div style={{display:'flex', gap:12, marginTop:8}}>
+                  <a
+                    href={buildEmail({ city: d.city, country: d.country, days: d.days })}
+                    style={{flex:1, textAlign:'center', padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
+                  >
+                    📧 Email this plan
+                  </a>
+                </div>
               </div>
             )}
 
