@@ -1,11 +1,14 @@
 export const dynamic = 'force-dynamic';
 
+/* ======================== Config ======================== */
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const PRIMARY = 'gpt-4o-mini';
 const FALLBACK = 'gpt-4o';
 
-/* -------------------- Text helpers -------------------- */
+/* Tiny helper to attach debug info */
+const withMeta = (data, meta) => ({ meta, ...data });
 
+/* ===================== Text helpers ===================== */
 const FILLERS = [
   /optional afternoon stroll/gi,
   /relaxing dinner/gi,
@@ -63,8 +66,7 @@ function cleanItin(days = []) {
 const daysWanted = (dur) =>
   dur === 'weekend-2d' ? 2 : dur === 'mini-4d' ? 4 : dur === 'two-weeks' ? 14 : 7;
 
-/* -------------------- Sample fallback (only used if API key missing or total failure) -------------------- */
-
+/* ================ Sample fallback (only if no key / error) ================ */
 function sample() {
   return {
     top3: [
@@ -153,8 +155,7 @@ function sample() {
   };
 }
 
-/* -------------------- OpenAI helpers (tuned for quality & speed) -------------------- */
-
+/* ================= OpenAI helpers (quality & speed) ================= */
 async function callOpenAI(messages, model) {
   const res = await fetch(OPENAI_URL, {
     method: 'POST',
@@ -164,9 +165,9 @@ async function callOpenAI(messages, model) {
     },
     body: JSON.stringify({
       model,
-      temperature: 0.55,           // crisp & consistent
-      max_tokens: 1500,            // enough for 3 x multi-day trips
-      response_format: { type: 'json_object' }, // faster parse, fewer retries
+      temperature: 0.55,
+      max_tokens: 1500,
+      response_format: { type: 'json_object' }, // structured JSON for fast reliable parse
       messages
     })
   });
@@ -179,7 +180,6 @@ function tryParseJSON(text) {
   try {
     return JSON.parse(text);
   } catch {}
-  // Safety fallbacks (rare with response_format JSON)
   const inline = text.match(/\{[\s\S]*\}/);
   if (inline) {
     try {
@@ -196,8 +196,7 @@ function tryParseJSON(text) {
   return null;
 }
 
-/* -------------------- Prompt builders -------------------- */
-
+/* ===================== Prompt builders ===================== */
 function buildMainPrompt(origin, p, wantDays) {
   const hours = Math.min(Math.max(Number(p.flight_time_hours) || 8, 1), 20);
 
@@ -299,14 +298,15 @@ function buildRepairDaysPrompt(city, country, haveDays, needDays) {
   ].join('\n');
 }
 
-/* -------------------- Core generation (with parallel repairs) -------------------- */
-
+/* ===================== Core generation ===================== */
 async function generate(body) {
-  if (!process.env.OPENAI_API_KEY) return sample();
-
   const origin = body?.origin || 'LHR';
   const p = body?.preferences || {};
   const want = daysWanted(p.duration);
+
+  if (!process.env.OPENAI_API_KEY) {
+    return withMeta(sample(), { mode: 'sample', reason: 'no_openai_key' });
+  }
 
   const sys = {
     role: 'system',
@@ -320,7 +320,11 @@ async function generate(body) {
   try {
     content = await callOpenAI([sys, usr], PRIMARY);
   } catch {
-    content = await callOpenAI([sys, usr], FALLBACK);
+    try {
+      content = await callOpenAI([sys, usr], FALLBACK);
+    } catch (e) {
+      return withMeta(sample(), { mode: 'sample', reason: String(e?.message || 'openai_error') });
+    }
   }
 
   let parsed = tryParseJSON(content);
@@ -342,11 +346,13 @@ async function generate(body) {
         parsed.top3 = [...parsed.top3, ...more.top3].slice(0, 3);
       }
     } catch {
-      // ignore — we’ll fall back to samples only if absolutely needed
+      // ignore; we'll still return something below
     }
   }
 
-  if (parsed.top3.length === 0) return sample();
+  if (parsed.top3.length === 0) {
+    return withMeta(sample(), { mode: 'sample', reason: 'no_results' });
+  }
 
   // 3) Normalize & repair missing days — run repairs in parallel for speed
   const fixed = await Promise.all(
@@ -372,7 +378,7 @@ async function generate(body) {
             days = [...days, ...arr].slice(0, want);
           }
         } catch {
-          // ignore; we’ll pad below if still short
+          // ignore; we'll pad if still short
         }
       }
 
@@ -394,12 +400,13 @@ async function generate(body) {
     })
   );
 
-  return { top3: fixed };
+  return withMeta({ top3: fixed }, { mode: 'live', wantDays: want });
 }
 
-/* -------------------- Route handlers -------------------- */
-
+/* ===================== Route handlers ===================== */
 export async function GET() {
+  // GET is a quick demo so you can ping the endpoint in a browser.
+  // It intentionally returns a 4-day mini-break.
   const data = await generate({ preferences: { duration: 'mini-4d' } });
   return new Response(JSON.stringify(data), {
     status: 200,
@@ -415,3 +422,4 @@ export async function POST(req) {
     headers: { 'Content-Type': 'application/json' }
   });
 }
+     
