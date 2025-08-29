@@ -1,40 +1,16 @@
 'use client';
 import React, { useState } from 'react';
 
-const INTERESTS = ['Beaches','Cities','Food & drink','Nightlife','Photography','Hiking','Mountains','Wildlife','Museums','Shopping','Water sports','Local culture'];
-
 export default function Home() {
-  const [form, setForm] = useState({
-    flight_time_hours: 8,
-    duration: 'mini-4d',      // weekend-2d | mini-4d | week-7d | two-weeks
-    group: 'couple',          // solo | couple | family | friends
-    style: 'relaxation',      // adventure | relaxation | cultural | luxury | budget
-    interests: [],
-    season: 'flexible',       // spring | summer | autumn | winter | flexible
-    pace: 'relaxed'           // total | relaxed | daily | packed
-  });
-
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState(null);
   const [results, setResults] = useState([]);
-
-  function updateField(name, value) { setForm(p => ({ ...p, [name]: value })); }
-  function toggleInterest(interest) {
-    setForm(prev => {
-      const exists = prev.interests.includes(interest);
-      return { ...prev, interests: exists ? prev.interests.filter(i => i !== interest) : [...prev.interests, interest] };
-    });
-  }
+  const [error, setError] = useState(null);
 
   async function onSubmit(e) {
     e.preventDefault();
     setLoading(true); setError(null); setResults([]);
     try {
-      const res = await fetch('/api/inspire', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin: 'LHR', preferences: form })
-      });
+      const res = await fetch('/api/inspire');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setResults(Array.isArray(data?.top3) ? data.top3 : []);
@@ -44,6 +20,18 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  return (
+    <main style={{maxWidth:720, margin:'32px auto', padding:16}}>
+      <h1 style={{fontSize:28, fontWeight:700, marginBottom:12}}>Trip Inspire</h1>
+      <form onSubmit={onSubmit}><button type="submit">Ping API</button></form>
+      {loading && <p>Working…</p>}
+      {error && <p style={{color:'crimson'}}>{error}</p>}
+      <pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(results[0] || {}, null, 2)}</pre>
+    </main>
+  );
+}
+
 
   return (
     <main style={{maxWidth: 900, margin:'32px auto', padding:16}}>
