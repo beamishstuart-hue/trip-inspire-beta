@@ -39,10 +39,21 @@ export default function QuizClient() {
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16, fontFamily:'system-ui, sans-serif'}}>
-      <h1 style={{fontSize:28, fontWeight:700, marginBottom:12}}>Trip Inspire</h1>
-      <p style={{color:'#555', marginBottom:24}}>Answer a few quick questions and we’ll suggest your Top 3 trip ideas.</p>
+      <h1 style={{fontSize:28, fontWeight:800, marginBottom:8}}>The Edit Ideas Quiz</h1>
+<p style={{color:'var(--muted)', marginBottom:24}}>
+  Answer a few quick questions and we’ll suggest your Top 3 trip ideas.
+</p>
 
-      <form onSubmit={onSubmit} style={{display:'grid', gap:20, background:'#fff', padding:20, borderRadius:12, boxShadow:'0 2px 10px rgba(0,0,0,0.05)'}}>
+
+      <form onSubmit={onSubmit} style={{
+  display:'grid',
+  gap:20,
+  background:'var(--card)',
+  padding:24,
+  borderRadius:'var(--radius)',
+  boxShadow:'var(--shadow)'
+}}
+>
         <label>
           1) Max flight time (hours, non-stop from UK):
           <input type="range" name="flight_time_hours" min="1" max="20" defaultValue="8" onInput={e => e.target.nextSibling.textContent = e.target.value + 'h'} />
@@ -110,9 +121,23 @@ export default function QuizClient() {
           </select>
         </label>
 
-        <button type="submit" style={{padding:'12px 16px', borderRadius:8, border:'1px solid #ddd', background:'#111', color:'#fff', fontSize:16}}>
-          Show My Top 3
-        </button>
+       <button
+  type="submit"
+  style={{
+    padding:'12px 18px',
+    borderRadius:'var(--radius)',
+    border:'1px solid transparent',
+    background:'var(--brand)',
+    color:'#fff',
+    fontSize:16,
+    fontWeight:600,
+    cursor:'pointer',
+    boxShadow:'var(--shadow)'
+  }}
+>
+  Show My Top 3
+</button>
+
       </form>
 
       {loading && <p style={{marginTop:16}}>Working on your ideas…</p>}
