@@ -235,13 +235,13 @@ function buildMainPrompt(origin, p, wantDays) {
       : 'Winter (Dec–Feb)';
 
   const paceTxt =
-    p.pace === 'total'
-      ? 'Total relaxation'
-      : p.pace === 'relaxed'
-      ? 'A few relaxing activities'
-      : p.pace === 'daily'
-      ? 'Different activity every day'
-      : 'Packed schedule';
+  p.pace === 'total'
+    ? 'Total relaxation — some days may have only one gentle suggestion (e.g. a spa, a beach, or a café), and at least one day can be marked as "full rest day".'
+    : p.pace === 'relaxed'
+    ? 'A few relaxing activities — 1–2 gentle items per day, not a full schedule.'
+    : p.pace === 'daily'
+    ? 'Something different every day — 2–3 clear activities daily.'
+    : 'Packed schedule — 3+ activities and transitions daily.';
 
   const rules = `HARD RULES (CRITICAL):
 - Return EXACTLY THREE (3) destinations in "top3".
@@ -252,6 +252,7 @@ function buildMainPrompt(origin, p, wantDays) {
 - Reflect opening hours when widely known and realistic travel times; include one rain fallback.
 - Avoid filler: "optional stroll", "relaxing dinner", "free time at resort".
 - Vary verbs; don’t repeat stroll/relax/enjoy/explore.
+- Respect the chosen itinerary pace: if total relaxation, allow empty morning/afternoon/evening slots or single-light items; if relaxed, keep daily load light.
 - OUTPUT JSON ONLY in this shape:
 {
   "top3": [
