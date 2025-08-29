@@ -44,14 +44,6 @@ function buildHighlightsPrompt(origin, p) {
     p.group === 'family' ? 'Family with kids' :
     p.group === 'friends' ? 'Group of friends' :
     p.group === 'couple' ? 'Couple' : 'Solo';
-  const styleMap = {
-    adventure: 'Adventure & outdoor activities',
-    relaxation: 'Relaxation & beach',
-    cultural: 'Cultural & historical',
-    luxury: 'Luxury & fine dining',
-    budget: 'Budget & backpacking'
-  };
-  const styleTxt = styleMap[p.style] || 'Mixed';
   const interestsTxt = Array.isArray(p.interests) && p.interests.length ? p.interests.join(', ') : 'surprise me';
   const seasonTxt =
     p.season === 'spring' ? 'Spring (Mar–May)' :
@@ -61,7 +53,7 @@ function buildHighlightsPrompt(origin, p) {
 
   return [
 `You are Trip Inspire. User origin: ${origin}. Non-stop flight time ≤ ~${hours}h.`,
-`Travellers: ${groupTxt}. Style: ${styleTxt}. Interests: ${interestsTxt}. Season: ${seasonTxt}.`,
+`Travellers: ${groupTxt}. Interests: ${interestsTxt}. Season: ${seasonTxt}.`,
 `Return JSON ONLY in this exact shape:
 {"top5":[{"city":"...","country":"...","summary":"1–2 lines","highlights":["...", "...", "..."]}]}`,
 `HARD RULES:
@@ -74,7 +66,7 @@ function buildHighlightsPrompt(origin, p) {
 function buildItineraryPrompt(city, country, wantDays, p) {
   return [
 `Build an exact-day itinerary for: ${city}${country ? ', ' + country : ''}.`,
-`Trip length: EXACTLY ${wantDays} days. Travellers: ${p.group || 'Couple'}. Style: ${p.style || 'Mixed'}. Interests: ${(p.interests||[]).join(', ') || 'surprise me'}. Season: ${p.season || 'flexible'}.`,
+`Trip length: EXACTLY ${wantDays} days. Travellers: ${p.group || 'Couple'}. Interests: ${(p.interests||[]).join(', ') || 'surprise me'}. Season: ${p.season || 'flexible'}.`,
 `Return JSON ONLY:
 {"days":[{"morning":"...","afternoon":"...","evening":"..."}]}`,
 `Rules:
@@ -118,7 +110,7 @@ async function generateItinerary(city, country, p) {
   if (!process.env.OPENAI_API_KEY) {
     return withMeta({
       city, country,
-      days: Array.from({length: want}).map((_,i)=>({
+      days: Array.from({length: want}).map(()=>({
         morning:`Café by ${city} landmark (name it)`,
         afternoon:`Short museum/garden near center (name it)`,
         evening:`Dinner at a typical spot (name it) + viewpoint`
@@ -149,13 +141,11 @@ async function generateItinerary(city, country, p) {
 
 /* --------------- Route handlers --------------- */
 
-// GET: quick highlights demo (fast sanity check)
 export async function GET() {
-  const data = await generateHighlights('LHR', { style:'relaxation', interests:['Beaches'] });
+  const data = await generateHighlights('LHR', { interests:['Beaches'], group:'couple', season:'summer' });
   return new Response(JSON.stringify(data), { status:200, headers:{'Content-Type':'application/json'} });
 }
 
-// POST: highlights by default, itinerary if buildItineraryFor is set
 export async function POST(req) {
   const body = await req.json().catch(()=> ({}));
   const origin = body.origin || 'LHR';
