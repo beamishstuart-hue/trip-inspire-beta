@@ -151,9 +151,9 @@ export default function QuizClient() {
             {trip.days?.map((d,di)=>(
               <div key={di} style={{marginBottom:12}}>
                 <strong>Day {di+1}</strong><br/>
-                🌅 Morning: {d.morning}<br/>
-                ☀️ Afternoon: {d.afternoon}<br/>
-                🌙 Evening: {d.evening}
+                 Morning: {d.morning}<br/>
+                 Afternoon: {d.afternoon}<br/>
+                 Evening: {d.evening}
               </div>
             ))}
           </div>
