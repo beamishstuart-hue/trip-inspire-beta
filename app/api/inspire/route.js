@@ -250,17 +250,18 @@ function buildMainPrompt(origin, p, wantDays) {
     ? '- For relaxed pace: limit to 1 gentle activity per slot (no packed schedules).'
     : '';
 
-const rules = `HARD RULES (CRITICAL):
+clet rules;
+
+if (p.pace === 'total') {
+  rules = `HARD RULES (CRITICAL):
 - Return EXACTLY THREE (3) destinations in "top3".
 - For each destination, produce EXACTLY ${wantDays} days.
-- No placeholders like "TBD".
-- Each day normally has morning/afternoon/evening, BUT adjust according to the itinerary pace.
-${relaxRule}
-- Each filled slot must include 1–2 named anchors (street/venue/landmark) AND 1 micro-detail (dish, view, sound, material).
-- Include 1 local quirk per trip (etiquette, transit trick, closing hour).
-- Reflect opening hours when widely known; include one rain fallback.
-- Avoid filler: "optional stroll", "relaxing dinner", "free time at resort".
-- Vary verbs; don’t repeat stroll/relax/enjoy/explore.
+- On total relaxation pace: do NOT force morning/afternoon/evening every day.
+  • At least 2 days must be labelled clearly as "Rest day" or "Full resort day".
+  • Other days may have only 1 light suggestion (e.g. spa visit, café by the beach).
+- Each filled activity must still have a named anchor (street/venue/landmark) and a micro-detail (dish, view, sound).
+- Include 1 local quirk per trip.
+- Avoid filler like "optional stroll" or "relaxing dinner".
 - OUTPUT JSON ONLY in this shape:
 {
   "top3": [
@@ -274,6 +275,16 @@ ${relaxRule}
     }
   ]
 }`;
+} else if (p.pace === 'relaxed') {
+  rules = `HARD RULES (CRITICAL):
+- Return EXACTLY THREE (3) destinations in "top3".
+- For each destination, produce EXACTLY ${wantDays} days.
+- Relaxed pace: each day should have no more than 1–2 light activities total. Many slots may remain blank.
+- Each filled activity must have a named anchor and a micro-detail.
+- Avoid filler. OUTPUT JSON ONLY in the given shape.`;
+} else {
+  rules = `HARD
+
 
   return [
     `Origin: ${origin}. Non-stop flight time ≤ ~${hours} hours from origin.`,
