@@ -15,7 +15,6 @@ export default function QuizClient() {
       flight_time_hours: fd.get('flight_time_hours'),
       duration: fd.get('duration'),
       group: fd.get('group'),
-      style: fd.get('style'),
       interests: fd.getAll('interests'),
       season: fd.get('season'),
     };
@@ -26,8 +25,7 @@ export default function QuizClient() {
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
           origin: 'LHR',
-          preferences: prefs,
-          highlightsOnly: true
+          preferences: prefs
         })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -48,7 +46,6 @@ export default function QuizClient() {
     const card = top5[idx];
     if (!card) return;
 
-    // choose duration based on button clicked
     const duration = daysLabel === '14' ? 'two-weeks' : 'week-7d';
 
     const form = document.querySelector('form');
@@ -57,7 +54,6 @@ export default function QuizClient() {
       flight_time_hours: fd.get('flight_time_hours'),
       duration,
       group: fd.get('group'),
-      style: fd.get('style'),
       interests: fd.getAll('interests'),
       season: fd.get('season'),
     };
@@ -92,6 +88,11 @@ export default function QuizClient() {
       setTop5(next);
     }
   }
+
+  const ALL_INTERESTS = [
+    'Beaches','Cities','Food & drink','Nightlife','Photography','Hiking','Mountains','Wildlife','Museums','Shopping','Water sports','Local culture',
+    'Romantic','Performing arts','Theme parks','Scenic drives'
+  ];
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
@@ -128,20 +129,9 @@ export default function QuizClient() {
           </select>
         </label>
 
-        <label>
-          4) Travel style:
-          <select name="style" defaultValue="relaxation">
-            <option value="adventure">Adventure & Outdoor</option>
-            <option value="relaxation">Relaxation & Beach</option>
-            <option value="cultural">Cultural & Historical</option>
-            <option value="luxury">Luxury & Fine Dining</option>
-            <option value="budget">Budget & Backpacking</option>
-          </select>
-        </label>
-
         <fieldset>
-          <legend>5) Interests (select all that apply):</legend>
-          {['Beaches','Cities','Food & drink','Nightlife','Photography','Hiking','Mountains','Wildlife','Museums','Shopping','Water sports','Local culture'].map(i=>(
+          <legend>4) Interests (select all that apply):</legend>
+          {ALL_INTERESTS.map(i=>(
             <label key={i} style={{display:'block'}}>
               <input type="checkbox" name="interests" value={i}/> {i}
             </label>
@@ -149,7 +139,7 @@ export default function QuizClient() {
         </fieldset>
 
         <label>
-          6) When are you planning to travel?
+          5) When are you planning to travel?
           <select name="season" defaultValue="summer">
             <option value="spring">Spring (Mar–May)</option>
             <option value="summer">Summer (Jun–Aug)</option>
