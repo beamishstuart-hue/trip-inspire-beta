@@ -165,12 +165,13 @@ export default function QuizClient() {
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
-      <h1 style={{fontSize:28, fontWeight:800, marginBottom:4}}>
+     <h1 style={{fontSize:28, fontWeight:800, marginBottom:4}}>
   Travel Inspiration Assistant
 </h1>
 <p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:24}}>
   from <strong>The Edit Travel Co</strong>
 </p>
+
 
 
       <form onSubmit={onSubmit} style={{display:'grid', gap:20, background:'var(--card)', padding:24, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
