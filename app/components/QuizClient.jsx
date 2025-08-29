@@ -1,6 +1,8 @@
 'use client';
 import React, { useState } from 'react';
 
+const MAIN_SITE_URL = 'https://www.your-squarespace-domain.com'; // ← replace with your real site
+
 /* --- tiny helper: map country -> emoji flag --- */
 const ISO2 = {
   portugal: 'PT', spain: 'ES', italy: 'IT', france: 'FR', 'united kingdom': 'GB', ireland: 'IE',
@@ -327,6 +329,14 @@ export default function QuizClient() {
           </div>
         ))}
       </div>
+      <footer style={{marginTop:40, textAlign:'center', fontSize:13, color:'var(--muted)'}}>
+  <a href={MAIN_SITE_URL} style={{color:'var(--brand)'}} rel="noopener">
+    ← Back to The Edit Travel Co
+  </a>
+  <div style={{marginTop:8, opacity:0.8}}>
+    © {new Date().getFullYear()} The Edit Travel Co
+  </div>
+</footer>
     </main>
   );
 }
