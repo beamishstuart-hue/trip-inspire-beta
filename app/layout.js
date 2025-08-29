@@ -1,7 +1,8 @@
 export const metadata = {
   title: "Travel Inspiration Assistant | The Edit Travel Co",
-  description: "Find your next trip idea with The Edit Travel Co.",
+  description: "Ideas.Edit.Travel — Your personalised trip inspiration quiz from The Edit Travel Co.",
 };
+
 
 
 export default function RootLayout({ children }) {
