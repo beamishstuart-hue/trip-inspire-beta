@@ -48,8 +48,8 @@ export default function QuizClient() {
     const card = top5[idx];
     if (!card) return;
 
-    const durSel = document.querySelector('select[name="duration"]');
-    const duration = durSel ? durSel.value : (daysLabel === '14' ? 'two-weeks' : 'week-7d');
+    // choose duration based on button clicked
+    const duration = daysLabel === '14' ? 'two-weeks' : 'week-7d';
 
     const form = document.querySelector('form');
     const fd = new FormData(form);
@@ -208,14 +208,21 @@ export default function QuizClient() {
             )}
 
             {!d.days && (
-              <div style={{marginTop:12}}>
+              <div style={{marginTop:12, display:'flex', gap:12}}>
                 {d._error && <p style={{color:'crimson'}}>{d._error}</p>}
                 <button
-                  onClick={()=>buildItinerary(i)}
+                  onClick={()=>buildItinerary(i, '7')}
                   disabled={d._loading}
-                  style={{padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:d._loading?'#ddd':'#111', color:'#fff', cursor:d._loading?'default':'pointer'}}
+                  style={{flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:d._loading?'#ddd':'#111', color:'#fff', cursor:d._loading?'default':'pointer'}}
                 >
                   {d._loading ? 'Building…' : 'Build 7-day itinerary'}
+                </button>
+                <button
+                  onClick={()=>buildItinerary(i, '14')}
+                  disabled={d._loading}
+                  style={{flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:d._loading?'#ddd':'#444', color:'#fff', cursor:d._loading?'default':'pointer'}}
+                >
+                  {d._loading ? 'Building…' : 'Build 14-day itinerary'}
                 </button>
               </div>
             )}
