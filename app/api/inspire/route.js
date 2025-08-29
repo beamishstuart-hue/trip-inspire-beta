@@ -243,16 +243,24 @@ function buildMainPrompt(origin, p, wantDays) {
     ? 'Something different every day — 2–3 clear activities daily.'
     : 'Packed schedule — 3+ activities and transitions daily.';
 
-  const rules = `HARD RULES (CRITICAL):
+  const relaxRule =
+  p.pace === 'total'
+    ? '- For total relaxation pace: you may leave some morning/afternoon/evening slots blank (e.g., just say "Full rest day at the resort"). At least one day should be almost empty.'
+    : p.pace === 'relaxed'
+    ? '- For relaxed pace: limit to 1 gentle activity per slot (no packed schedules).'
+    : '';
+
+const rules = `HARD RULES (CRITICAL):
 - Return EXACTLY THREE (3) destinations in "top3".
-- For each destination, produce EXACTLY ${wantDays} days. No placeholders like "TBD".
-- No day repeats the same morning/afternoon/evening pattern across days.
-- EACH day contains 1–2 named anchors (street/venue/landmark) AND 1 micro-detail (dish, view, sound, material).
+- For each destination, produce EXACTLY ${wantDays} days.
+- No placeholders like "TBD".
+- Each day normally has morning/afternoon/evening, BUT adjust according to the itinerary pace.
+${relaxRule}
+- Each filled slot must include 1–2 named anchors (street/venue/landmark) AND 1 micro-detail (dish, view, sound, material).
 - Include 1 local quirk per trip (etiquette, transit trick, closing hour).
-- Reflect opening hours when widely known and realistic travel times; include one rain fallback.
+- Reflect opening hours when widely known; include one rain fallback.
 - Avoid filler: "optional stroll", "relaxing dinner", "free time at resort".
 - Vary verbs; don’t repeat stroll/relax/enjoy/explore.
-- Respect the chosen itinerary pace: if total relaxation, allow empty morning/afternoon/evening slots or single-light items; if relaxed, keep daily load light.
 - OUTPUT JSON ONLY in this shape:
 {
   "top3": [
