@@ -5,7 +5,6 @@ const PRIMARY = 'gpt-4o-mini';
 const FALLBACK = 'gpt-4o';
 
 const withMeta = (data, meta) => ({ meta, ...data });
-
 const STRIP = (s='') => s.replace(/\s+/g,' ').trim();
 
 const daysWanted = (dur) =>
@@ -89,7 +88,6 @@ function buildItineraryPrompt(city, country, wantDays, p) {
 
 async function generateHighlights(origin, p) {
   if (!process.env.OPENAI_API_KEY) {
-    // minimal static sample (fast)
     return withMeta({
       top5: [
         { city:'Valencia', country:'Spain', summary:'Beachy city with paella & modernism', highlights:['Ciudad de las Artes (gleaming curves)','Paella at La Pepica (seafront)','El Cabanyal tiles & beach walk'] },
@@ -118,7 +116,6 @@ async function generateHighlights(origin, p) {
 async function generateItinerary(city, country, p) {
   const want = daysWanted(p.duration);
   if (!process.env.OPENAI_API_KEY) {
-    // minimal fallback with stubs
     return withMeta({
       city, country,
       days: Array.from({length: want}).map((_,i)=>({
@@ -140,7 +137,6 @@ async function generateItinerary(city, country, p) {
   }
   const parsed = tryParse(content) || {};
   const days = Array.isArray(parsed.days) ? parsed.days.slice(0, want) : [];
-  // pad if needed
   while (days.length < want) {
     days.push({
       morning:`Café by ${city} landmark (name it)`,
@@ -153,20 +149,17 @@ async function generateItinerary(city, country, p) {
 
 /* --------------- Route handlers --------------- */
 
-// GET: quick highlights demo (fast)
+// GET: quick highlights demo (fast sanity check)
 export async function GET() {
   const data = await generateHighlights('LHR', { style:'relaxation', interests:['Beaches'] });
   return new Response(JSON.stringify(data), { status:200, headers:{'Content-Type':'application/json'} });
 }
 
-// POST:
-// - highlightsOnly: true  => returns { top5: [...] } (FAST)
-// - buildItineraryFor: { city, country, duration } => returns { city, country, days:[...] } for ONE destination
+// POST: highlights by default, itinerary if buildItineraryFor is set
 export async function POST(req) {
   const body = await req.json().catch(()=> ({}));
   const origin = body.origin || 'LHR';
   const p = body.preferences || {};
-  const highlightsOnly = !!body.highlightsOnly;
   const build = body.buildItineraryFor;
 
   try {
