@@ -56,9 +56,9 @@ function cleanItin(days = []) {
 
   return days.map((d) =>
     dedupe({
-      morning: STRIP(varyVerb(rep(d.morning))),
-      afternoon: STRIP(varyVerb(rep(d.afternoon))),
-      evening: STRIP(varyVerb(rep(d.evening)))
+      morning: STRIP(varyVerb(rep(d.morning || ''))),
+      afternoon: STRIP(varyVerb(rep(d.afternoon || ''))),
+      evening: STRIP(varyVerb(rep(d.evening || '')))
     })
   );
 }
@@ -165,9 +165,9 @@ async function callOpenAI(messages, model) {
     },
     body: JSON.stringify({
       model,
-      temperature: 0.55,
-      max_tokens: 1500,
-      response_format: { type: 'json_object' }, // structured JSON for fast reliable parse
+      temperature: 0.5,          // slightly tighter & faster
+      max_tokens: 1200,          // trims generation time
+      response_format: { type: 'json_object' }, // structured JSON for reliable parse
       messages
     })
   });
@@ -235,56 +235,53 @@ function buildMainPrompt(origin, p, wantDays) {
       : 'Winter (Dec–Feb)';
 
   const paceTxt =
-  p.pace === 'total'
-    ? 'Total relaxation — some days may have only one gentle suggestion (e.g. a spa, a beach, or a café), and at least one day can be marked as "full rest day".'
-    : p.pace === 'relaxed'
-    ? 'A few relaxing activities — 1–2 gentle items per day, not a full schedule.'
-    : p.pace === 'daily'
-    ? 'Something different every day — 2–3 clear activities daily.'
-    : 'Packed schedule — 3+ activities and transitions daily.';
+    p.pace === 'total'
+      ? 'Total relaxation'
+      : p.pace === 'relaxed'
+      ? 'A few relaxing activities'
+      : p.pace === 'daily'
+      ? 'Different activity every day'
+      : 'Packed schedule';
 
-  const relaxRule =
-  p.pace === 'total'
-    ? '- For total relaxation pace: you may leave some morning/afternoon/evening slots blank (e.g., just say "Full rest day at the resort"). At least one day should be almost empty.'
-    : p.pace === 'relaxed'
-    ? '- For relaxed pace: limit to 1 gentle activity per slot (no packed schedules).'
-    : '';
-
-clet rules;
-
-if (p.pace === 'total') {
-  rules = `HARD RULES (CRITICAL):
+  // Conditional rules: loosen day structure when pace is "total" or "relaxed"
+  let rules;
+  if (p.pace === 'total') {
+    rules = `HARD RULES (CRITICAL):
 - Return EXACTLY THREE (3) destinations in "top3".
 - For each destination, produce EXACTLY ${wantDays} days.
 - On total relaxation pace: do NOT force morning/afternoon/evening every day.
-  • At least 2 days must be labelled clearly as "Rest day" or "Full resort day".
-  • Other days may have only 1 light suggestion (e.g. spa visit, café by the beach).
-- Each filled activity must still have a named anchor (street/venue/landmark) and a micro-detail (dish, view, sound).
+  • At least 2 days must be labelled clearly as "Rest day" or "Full resort/spa day".
+  • Other days may have only one light suggestion (e.g., spa session, beach, café by the sea).
+- Any filled activity must include a named anchor (street/venue/landmark) AND a micro-detail (dish, view, sound, texture).
 - Include 1 local quirk per trip.
 - Avoid filler like "optional stroll" or "relaxing dinner".
-- OUTPUT JSON ONLY in this shape:
-{
-  "top3": [
-    {
-      "city": "City",
-      "country": "Country",
-      "summary": "1–2 lines why this fits the user",
-      "days": [
-        { "morning": "...", "afternoon": "...", "evening": "..." }
-      ]
-    }
-  ]
-}`;
-} else if (p.pace === 'relaxed') {
-  rules = `HARD RULES (CRITICAL):
+- Keep any filled slot under ~25 words.
+- OUTPUT JSON ONLY in this exact shape:
+{"top3":[{"city":"City","country":"Country","summary":"Why it fits","days":[{"morning":"...","afternoon":"...","evening":"..."}]}]}`;
+  } else if (p.pace === 'relaxed') {
+    rules = `HARD RULES (CRITICAL):
 - Return EXACTLY THREE (3) destinations in "top3".
 - For each destination, produce EXACTLY ${wantDays} days.
-- Relaxed pace: each day should have no more than 1–2 light activities total. Many slots may remain blank.
-- Each filled activity must have a named anchor and a micro-detail.
-- Avoid filler. OUTPUT JSON ONLY in the given shape.`;
-} else {
-  rules = `HARD
-
+- Relaxed pace: keep the daily load light (1 gentle activity per slot). It is OK to leave one slot empty on some days.
+- Any filled activity must include a named anchor and a micro-detail.
+- Avoid filler. Keep slots under ~25 words.
+- OUTPUT JSON ONLY in this exact shape:
+{"top3":[{"city":"City","country":"Country","summary":"Why it fits","days":[{"morning":"...","afternoon":"...","evening":"..."}]}]}`;
+  } else {
+    rules = `HARD RULES (CRITICAL):
+- Return EXACTLY THREE (3) destinations in "top3".
+- For each destination, produce EXACTLY ${wantDays} days. No placeholders like "TBD".
+- No day repeats the same morning/afternoon/evening pattern across days.
+- EACH filled slot contains 1–2 named anchors (street/venue/landmark) AND 1 micro-detail (dish, view, sound, material).
+- Include 1 local quirk per trip (etiquette, transit trick, closing hour).
+- Reflect opening hours when widely known and realistic travel times; include one rain fallback.
+- Avoid filler: "optional stroll", "relaxing dinner", "free time at resort".
+- Vary verbs; don’t repeat stroll/relax/enjoy/explore.
+- Keep each slot under ~25 words.
+- DIVERSITY: Prefer destinations in different countries. Do not include Lisbon, Barcelona, or Porto unless they are the single best match by constraints.
+- OUTPUT JSON ONLY in this exact shape:
+{"top3":[{"city":"City","country":"Country","summary":"Why it fits","days":[{"morning":"...","afternoon":"...","evening":"..."}]}]}`;
+  }
 
   return [
     `Origin: ${origin}. Non-stop flight time ≤ ~${hours} hours from origin.`,
@@ -313,8 +310,8 @@ function buildRepairDaysPrompt(city, country, haveDays, needDays) {
     `Destination: ${city}${country ? ', ' + country : ''}`,
     `You provided ${haveDays} days. Total required: ${haveDays + needDays} days.`,
     `Return ONLY the missing ${needDays} days as a pure JSON array (no prose):`,
-    `[{ "morning":"...", "afternoon":"...", "evening":"..." }]`,
-    `Rules: include named anchors + 1 micro-detail; avoid filler; vary verbs.`
+    `[{ "morning":"", "afternoon":"", "evening":"" }]`,
+    `Respect itinerary pace: for total relaxation, leave slots blank or add 1 very light item; for relaxed, keep it light.`
   ].join('\n');
 }
 
@@ -331,7 +328,7 @@ async function generate(body) {
   const sys = {
     role: 'system',
     content:
-      'You are Trip Inspire. Provide concrete, place-anchored itineraries with varied days and specific details.'
+      'You are Trip Inspire. Provide concrete, place-anchored itineraries. Respect itinerary pace (total/relaxed/daily/packed).'
   };
   const usr = { role: 'user', content: buildMainPrompt(origin, p, want) };
 
@@ -381,6 +378,7 @@ async function generate(body) {
       const country = STRIP(trip.country || '');
       const summary = STRIP(trip.summary || '');
 
+      // Allow blank strings for total/relaxed pace
       let days = Array.isArray(trip.days) ? trip.days.slice(0, want) : [];
 
       if (days.length < want) {
@@ -402,12 +400,13 @@ async function generate(body) {
         }
       }
 
-      // Final safety: pad without "TBD"
+      // Final safety: if still short, pad in a pace-aware way (no "TBD")
       while (days.length < want) {
+        const restful = p.pace === 'total';
         days.push({
-          morning: 'Local market (name it) + coffee on a pedestrian street',
-          afternoon: 'Named museum/viewpoint in the historic center',
-          evening: 'Dinner at a typical spot (name it) + sunset viewpoint (name it)'
+          morning: restful ? '' : 'Local market (name it) + coffee on a pedestrian street',
+          afternoon: restful ? '' : 'Named museum/viewpoint in the historic center',
+          evening: restful ? 'Early dinner at a typical spot (name it) + sunset viewpoint (name it)' : 'Dinner at a typical spot (name it) + sunset viewpoint (name it)'
         });
       }
 
@@ -420,7 +419,7 @@ async function generate(body) {
     })
   );
 
-  return withMeta({ top3: fixed }, { mode: 'live', wantDays: want });
+  return withMeta({ top3: fixed }, { mode: 'live', wantDays: want, echo: { origin, preferences: p } });
 }
 
 /* ===================== Route handlers ===================== */
@@ -442,4 +441,3 @@ export async function POST(req) {
     headers: { 'Content-Type': 'application/json' }
   });
 }
-     
