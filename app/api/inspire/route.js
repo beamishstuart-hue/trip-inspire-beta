@@ -57,7 +57,7 @@ function buildHighlightsPrompt(origin, p) {
 `Return JSON ONLY in this exact shape:
 {"top5":[{"city":"...","country":"...","summary":"1–2 lines","highlights":["...", "...", "..."]}]}`,
 `HARD RULES:
-- Return EXACTLY FIVE destinations in "top5", ideally different countries; avoid Lisbon/Barcelona/Porto unless truly best fit.
+- Return EXACTLY FIVE destinations in "top5", ideally different countries; strongly avoid overused picks like Lisbon, Barcelona, Porto, Paris, Rome, Amsterdam unless they are an unusually strong fit for the stated interests/season/flight-time.
 - Each "highlights" array has EXACTLY 3 concise, specific items with named anchors (street/venue/landmark) and one micro-detail (dish/view/sound).
 - No itineraries, no mornings/afternoons/evenings here.`
   ].join('\n');
@@ -76,6 +76,55 @@ function buildItineraryPrompt(city, country, wantDays, p) {
   ].join('\n');
 }
 
+/* --------------- Soft-avoid + diversify --------------- */
+
+const AVOID = new Set([
+  'lisbon','barcelona','porto','paris','rome','amsterdam','london','madrid','athens','venice',
+  'florence','berlin','prague','vienna','budapest','dublin'
+]);
+
+function postProcessTop5(list = []) {
+  // sanitize & trim
+  const cleaned = list
+    .map(x => ({
+      city: STRIP(x.city || ''),
+      country: STRIP(x.country || ''),
+      summary: STRIP(x.summary || ''),
+      highlights: Array.isArray(x.highlights) ? x.highlights.slice(0,3).map(STRIP) : []
+    }))
+    .filter(x => x.city && x.country && x.highlights.length === 3);
+
+  // prefer different countries, and avoid common cities unless needed
+  const seenCountries = new Set();
+  const unique = [];
+  // First pass: pick those not in avoid AND new country
+  for (const t of cleaned) {
+    const key = (t.city || '').toLowerCase();
+    const ctry = (t.country || '').toLowerCase();
+    if (!seenCountries.has(ctry) && !AVOID.has(key)) {
+      unique.push(t);
+      seenCountries.add(ctry);
+    }
+  }
+  // Second pass: fill remaining with non-avoid even if same country
+  for (const t of cleaned) {
+    if (unique.length >= 5) break;
+    const key = (t.city || '').toLowerCase();
+    const ctry = (t.country || '').toLowerCase();
+    if (!AVOID.has(key)) {
+      unique.push(t);
+      seenCountries.add(ctry);
+    }
+  }
+  // Final pass: if still short, allow avoid list to fill to 5
+  for (const t of cleaned) {
+    if (unique.length >= 5) break;
+    unique.push(t);
+  }
+
+  return unique.slice(0,5);
+}
+
 /* --------------- Core --------------- */
 
 async function generateHighlights(origin, p) {
@@ -91,7 +140,7 @@ async function generateHighlights(origin, p) {
     }, { mode:'sample' });
   }
 
-  const sys = { role:'system', content:'Be concise, concrete, and varied across countries.' };
+  const sys = { role:'system', content:'Be concise, concrete, varied across countries, and avoid overused picks unless truly best fit.' };
   const usr = { role:'user', content: buildHighlightsPrompt(origin, p) };
 
   let content;
@@ -101,7 +150,8 @@ async function generateHighlights(origin, p) {
     content = await callOpenAI([sys, usr], FALLBACK, 700, 0.5);
   }
   const parsed = tryParse(content) || {};
-  const list = Array.isArray(parsed.top5) ? parsed.top5.slice(0,5) : [];
+  const raw = Array.isArray(parsed.top5) ? parsed.top5 : [];
+  const list = postProcessTop5(raw);
   return withMeta({ top5: list }, { mode:'live' });
 }
 
