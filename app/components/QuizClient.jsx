@@ -3,14 +3,12 @@ import React, { useState } from 'react';
 
 export default function QuizClient() {
   const [loading, setLoading] = useState(false);
-  const [meta, setMeta] = useState(null);
   const [top5, setTop5] = useState([]);
   const [error, setError] = useState(null);
-  const [includeItinNow, setIncludeItinNow] = useState(false);
 
   async function onSubmit(e) {
     e.preventDefault();
-    setLoading(true); setError(null); setMeta(null); setTop5([]);
+    setLoading(true); setError(null); setTop5([]);
 
     const fd = new FormData(e.target);
     const prefs = {
@@ -29,23 +27,13 @@ export default function QuizClient() {
         body: JSON.stringify({
           origin: 'LHR',
           preferences: prefs,
-          highlightsOnly: !includeItinNow
+          highlightsOnly: true
         })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setMeta(data.meta || null);
-
-      // If includeItinNow is false => we expect { top5: [...] }
       if (Array.isArray(data.top5)) {
         setTop5(data.top5);
-      } else if (Array.isArray(data.top3)) {
-        // legacy support if you flip the API back
-        setTop5(data.top3.map(t=>({
-          city:t.city, country:t.country,
-          summary:t.summary,
-          highlights:(t.days||[]).slice(0,3).map((d,i)=> d.morning || d.afternoon || d.evening || `Highlight ${i+1}`)
-        })));
       } else {
         setTop5([]);
       }
@@ -59,11 +47,10 @@ export default function QuizClient() {
   async function buildItinerary(idx, daysLabel='7') {
     const card = top5[idx];
     if (!card) return;
-    // Grab current duration selection from the form
+
     const durSel = document.querySelector('select[name="duration"]');
     const duration = durSel ? durSel.value : (daysLabel === '14' ? 'two-weeks' : 'week-7d');
 
-    // Also pass the same preferences so the plan is consistent
     const form = document.querySelector('form');
     const fd = new FormData(form);
     const prefs = {
@@ -75,7 +62,6 @@ export default function QuizClient() {
       season: fd.get('season'),
     };
 
-    // Mark this card as loading
     const prev = [...top5];
     prev[idx] = { ...card, _loading: true };
     setTop5(prev);
@@ -109,8 +95,11 @@ export default function QuizClient() {
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
-      <h1 style={{fontSize:28, fontWeight:800, marginBottom:8}}>The Edit Trip Quiz</h1>
-      <p style={{color:'var(--muted)', marginBottom:24}}>Answer a few quick questions and we’ll suggest your Top 5, fast. Build a full itinerary only when you want it.</p>
+      <h1 style={{fontSize:28, fontWeight:800, marginBottom:8}}>Travel Inspiration Assistant</h1>
+      <p style={{color:'var(--muted)', marginBottom:24}}>
+        Answer a few quick questions and we’ll suggest your Top 5 destinations. 
+        Then you can build a detailed itinerary for the one you like most.
+      </p>
 
       <form onSubmit={onSubmit} style={{display:'grid', gap:20, background:'var(--card)', padding:24, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
         <label>
@@ -170,19 +159,28 @@ export default function QuizClient() {
           </select>
         </label>
 
-        <label style={{display:'flex', gap:8, alignItems:'center'}}>
-          <input type="checkbox" checked={includeItinNow} onChange={e=>setIncludeItinNow(e.target.checked)} />
-          Show full itineraries now (slower)
-        </label>
-
         <button type="submit" style={{padding:'12px 18px', borderRadius:'var(--radius)', border:'1px solid transparent', background:'var(--brand)', color:'#fff', fontSize:16, fontWeight:600, cursor:'pointer', boxShadow:'var(--shadow)'}}>
-          Show My Top {includeItinNow ? '3 with itineraries' : '5 Highlights'}
+          Show My Top 5 Highlights
         </button>
       </form>
 
-      {loading && <p style={{marginTop:16}}>Working…</p>}
+      {loading && (
+        <div style={{marginTop:16, textAlign:'center'}}>
+          <div className="spinner" style={{
+            border:'4px solid #f3f3f3',
+            borderTop:'4px solid var(--brand)',
+            borderRadius:'50%',
+            width:'32px',
+            height:'32px',
+            animation:'spin 1s linear infinite',
+            margin:'0 auto'
+          }} />
+          <p style={{marginTop:8}}>Finding the best matches…</p>
+          <style>{`@keyframes spin {0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}`}</style>
+        </div>
+      )}
+
       {error && <p style={{marginTop:16, color:'crimson'}}>{error}</p>}
-      {meta && <p style={{marginTop:8, color:'var(--muted)'}}>API mode: <strong>{meta.mode}</strong></p>}
 
       <div style={{display:'grid', gap:16, marginTop:24}}>
         {top5.map((d, i)=>(
@@ -196,7 +194,6 @@ export default function QuizClient() {
               </ul>
             )}
 
-            {/* Itinerary section (after request) */}
             {Array.isArray(d.days) && (
               <div style={{marginTop:12, display:'grid', gap:8}}>
                 {d.days.map((day,di)=>(
@@ -210,7 +207,6 @@ export default function QuizClient() {
               </div>
             )}
 
-            {/* Build Itinerary button */}
             {!d.days && (
               <div style={{marginTop:12}}>
                 {d._error && <p style={{color:'crimson'}}>{d._error}</p>}
