@@ -1,7 +1,7 @@
 'use client';
 import React, { useState } from 'react';
 
-const MAIN_SITE_URL = 'https://www.your-squarespace-domain.com'; // ← replace with your real site
+const MAIN_SITE_URL = 'https://edit.travel'; //
 
 /* --- tiny helper: map country -> emoji flag --- */
 const ISO2 = {
