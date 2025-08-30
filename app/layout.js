@@ -1,6 +1,9 @@
 export const metadata = {
   title: "Travel Inspiration Assistant | The Edit Travel Co",
   description: "Ideas.Edit.Travel — Your personalised trip inspiration quiz from The Edit Travel Co.",
+  icons: {
+    icon: '/favicon.ico',  // this pulls from /public
+  },
 };
 
 
