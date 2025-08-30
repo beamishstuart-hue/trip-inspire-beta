@@ -139,9 +139,10 @@ export default function QuizClient() {
   }
 
   const ALL_INTERESTS = [
-    'Beaches','Cities','Food & drink','Nightlife','Photography','Hiking','Mountains','Wildlife','Museums','Shopping','Water sports','Local culture',
-    'Romantic','Performing arts','Theme parks','Scenic drives'
-  ];
+  'Beaches','Cities','Food & drink','Nightlife','Photography','Hiking','Mountains','Wildlife','Museums','Shopping','Water sports','Local culture',
+  'Romantic','Performing arts','Theme parks','Scenic drives',
+  'All-inclusive resorts','Less crowded'
+];
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
