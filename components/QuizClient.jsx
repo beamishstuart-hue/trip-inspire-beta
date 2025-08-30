@@ -308,7 +308,7 @@ export default function QuizClient() {
                     opacity: d._loading14 ? 0.6 : 1
                   }}
                 >
-                  {d._loading7 ? 'Building…' : 'Build 7-day itinerary'}
+                  {d._loading7 ? 'Building…' : 'Show 7-day itinerary'}
                 </button>
 
                 {/* 14-day button */}
@@ -322,7 +322,7 @@ export default function QuizClient() {
                     opacity: d._loading7 ? 0.6 : 1
                   }}
                 >
-                  {d._loading14 ? 'Building…' : 'Build 14-day itinerary'}
+                  {d._loading14 ? 'Building…' : 'Show 14-day itinerary'}
                 </button>
               </div>
             )}
