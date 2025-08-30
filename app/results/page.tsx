@@ -1,7 +1,8 @@
-import ResultsCTA from "@/app/components/ResultsCTA";
-import ResultCard from "@/app/components/ResultCard";
-import { DESTINATIONS, type Destination } from "@/lib/destinations";
-import { estimateFlightHours } from "@/lib/flightTime";
+// app/results/page.tsx
+import ResultsCTA from "../components/ResultsCTA";
+import ResultCard from "../components/ResultCard";
+import { DESTINATIONS, type Destination } from "../../lib/destinations";
+import { estimateFlightHours } from "../../lib/flightTime";
 
 type Search = {
   month?: string;
