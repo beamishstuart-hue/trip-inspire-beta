@@ -1,26 +1,7 @@
 'use client';
 import React, { useState } from 'react';
 
-const MAIN_SITE_URL = 'https://edit.travel'; //
-
-/* --- tiny helper: map country -> emoji flag --- */
-const ISO2 = {
-  portugal: 'PT', spain: 'ES', italy: 'IT', france: 'FR', 'united kingdom': 'GB', ireland: 'IE',
-  germany: 'DE', netherlands: 'NL', belgium: 'BE', switzerland: 'CH', austria: 'AT', croatia: 'HR',
-  greece: 'GR', 'czech republic': 'CZ', 'united states': 'US', usa: 'US', canada: 'CA', mexico: 'MX',
-  japan: 'JP', thailand: 'TH', indonesia: 'ID', 'united arab emirates': 'AE', morocco: 'MA', turkey: 'TR',
-  iceland: 'IS', norway: 'NO', sweden: 'SE', finland: 'FI', denmark: 'DK', poland: 'PL', hungary: 'HU',
-  romania: 'RO', bulgaria: 'BG', malta: 'MT', cyprus: 'CY', 'dominican republic': 'DO', brazil: 'BR',
-  argentina: 'AR', chile: 'CL', peru: 'PE', colombia: 'CO', australia: 'AU', 'new zealand': 'NZ',
-  egypt: 'EG', kenya: 'KE', tanzania: 'TZ', 'south africa': 'ZA', 'saudi arabia': 'SA', qatar: 'QA',
-  oman: 'OM', 'costa rica': 'CR', 'united kingdom (uk)': 'GB'
-};
-const flagFor = (country = '') => {
-  const c = (country || '').trim().toLowerCase();
-  const code = ISO2[c];
-  if (!code) return '🌍';
-  return code.toUpperCase().replace(/./g, ch => String.fromCodePoint(127397 + ch.charCodeAt(0)));
-};
+const MAIN_SITE_URL = 'https://edit.travel';
 
 /* --- format a mailto body from an itinerary --- */
 function buildItineraryEmail({ city, country, days }) {
@@ -89,7 +70,6 @@ export default function QuizClient() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (Array.isArray(data.top5)) {
-        // ensure each card has its own loading flags
         setTop5(data.top5.map(x => ({ ...x, _loading7:false, _loading14:false })));
       } else {
         setTop5([]);
@@ -107,7 +87,6 @@ export default function QuizClient() {
 
     const duration = daysLabel === '14' ? 'two-weeks' : 'week-7d';
 
-    // collect prefs from the form
     const form = document.querySelector('form');
     const fd = new FormData(form);
     const prefs = {
@@ -118,12 +97,11 @@ export default function QuizClient() {
       season: fd.get('season'),
     };
 
-    // set per-button loading
     const prev = [...top5];
-    prev[idx] = { 
-      ...card, 
-      _loading7: daysLabel === '7', 
-      _loading14: daysLabel === '14' 
+    prev[idx] = {
+      ...card,
+      _loading7: daysLabel === '7',
+      _loading14: daysLabel === '14'
     };
     setTop5(prev);
 
@@ -150,11 +128,11 @@ export default function QuizClient() {
       setTop5(next);
     } catch (e) {
       const next = [...top5];
-      next[idx] = { 
-        ...card, 
-        _loading7:false, 
-        _loading14:false, 
-        _error: e.message || 'Failed to build itinerary' 
+      next[idx] = {
+        ...card,
+        _loading7:false,
+        _loading14:false,
+        _error: e.message || 'Failed to build itinerary'
       };
       setTop5(next);
     }
@@ -167,14 +145,12 @@ export default function QuizClient() {
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
-     <h1 style={{fontSize:28, fontWeight:800, marginBottom:4}}>
-  Travel Inspiration Assistant
-</h1>
-<p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:24}}>
-  from <strong>The Edit Travel Co</strong>
-</p>
-
-
+      <h1 style={{fontSize:28, fontWeight:800, marginBottom:4}}>
+        Travel Inspiration Assistant
+      </h1>
+      <p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:24}}>
+        from <strong>The Edit Travel Co</strong>
+      </p>
 
       <form onSubmit={onSubmit} style={{display:'grid', gap:20, background:'var(--card)', padding:24, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
         <label>
@@ -262,7 +238,6 @@ export default function QuizClient() {
         {top5.map((d, i)=>(
           <div key={`${d.city}-${i}`} style={{background:'var(--card)', padding:16, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
             <h2 style={{marginTop:0}}>
-              <span style={{marginRight:8}}>{flagFor(d.country)}</span>
               {d.city}{d.country ? `, ${d.country}` : ''}
             </h2>
             {d.summary && <p style={{fontStyle:'italic'}}>{d.summary}</p>}
@@ -295,43 +270,57 @@ export default function QuizClient() {
               </div>
             )}
 
-          {!d.days && (
-  <div style={{ marginTop: 12, display: 'flex', gap: 12 }}>
-    {/* 7-day button */}
-    <button
-      onClick={() => buildItinerary(i, '7')}
-      disabled={d._loading14 || d._loading7}
-      style={{
-        flex: 1,
-        padding: '10px 14px',
-        borderRadius: 10,
-        border: '1px solid #ddd',
-        backgroundColor: d._loading14 ? '#ddd' : '#C66A3D',
-        color: '#fff',
-        cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
-        opacity: d._loading14 ? 0.6 : 1
-      }}
-    >
-      {d._loading7 ? 'Preparing…' : 'Show 7-day itinerary'}
-    </button>
+            {!d.days && (
+              <div style={{ marginTop: 12, display: 'flex', gap: 12 }}>
+                {/* 7-day button */}
+                <button
+                  onClick={() => buildItinerary(i, '7')}
+                  disabled={d._loading14 || d._loading7}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: 10,
+                    border: '1px solid #ddd',
+                    backgroundColor: d._loading14 ? '#ddd' : '#C66A3D',
+                    color: '#fff',
+                    cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+                    opacity: d._loading14 ? 0.6 : 1
+                  }}
+                >
+                  {d._loading7 ? 'Preparing…' : 'Show 7-day itinerary'}
+                </button>
 
-    {/* 14-day button */}
-    <button
-      onClick={() => buildItinerary(i, '14')}
-      disabled={d._loading14 || d._loading7}
-      style={{
-        flex: 1,
-        padding: '10px 14px',
-        borderRadius: 10,
-        border: '1px solid #ddd',
-        backgroundColor: d._loading7 ? '#ddd' : '#C66A3D',
-        color: '#fff',
-        cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
-        opacity: d._loading7 ? 0.6 : 1
-      }}
-    >
-      {d._loading14 ? 'Preparing…' : 'Show 14-day itinerary'}
-    </button>
-  </div>
-)} {/* <-- this closes the {!d.days && ( ... ) block */}
+                {/* 14-day button */}
+                <button
+                  onClick={() => buildItinerary(i, '14')}
+                  disabled={d._loading14 || d._loading7}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: 10,
+                    border: '1px solid #ddd',
+                    backgroundColor: d._loading7 ? '#ddd' : '#C66A3D',
+                    color: '#fff',
+                    cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+                    opacity: d._loading7 ? 0.6 : 1
+                  }}
+                >
+                  {d._loading14 ? 'Preparing…' : 'Show 14-day itinerary'}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
+      <footer style={{marginTop:40, textAlign:'center', fontSize:13, color:'var(--muted)'}}>
+        <a href={MAIN_SITE_URL} style={{color:'var(--brand)'}} rel="noopener">
+          ← Back to The Edit Travel Co
+        </a>
+        <div style={{marginTop:8, opacity:0.8}}>
+          © {new Date().getFullYear()} The Edit Travel Co
+        </div>
+      </footer>
+    </main>
+  );
+}
