@@ -234,6 +234,23 @@ export default function QuizClient() {
         </div>
       )}
 
+{top5.length > 0 && (
+  <div style={{marginTop:16, display:'flex', flexWrap:'wrap', gap:12}}>
+    <a
+      href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
+      style={{padding:'10px 14px', borderRadius:10, backgroundColor:'#C66A3D', color:'#fff', textDecoration:'none'}}
+    >
+      Get a quote for your trip
+    </a>
+    <a
+      href="https://edit.travel/?utm_source=ideas&utm_medium=results&utm_campaign=browse"
+      style={{padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
+    >
+      Explore more of The Edit
+    </a>
+  </div>
+)}
+      
       <div style={{display:'grid', gap:16, marginTop:24}}>
         {top5.map((d, i)=>(
           <div key={`${d.city}-${i}`} style={{background:'var(--card)', padding:16, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
