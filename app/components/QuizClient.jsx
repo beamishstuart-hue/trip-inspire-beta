@@ -243,12 +243,6 @@ export default function QuizClient() {
     >
       Get a quote for your trip
     </a>
-    <a
-      href="https://edit.travel/?utm_source=ideas&utm_medium=results&utm_campaign=browse"
-      style={{padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
-    >
-      Explore more of The Edit
-    </a>
   </div>
 )}
       
