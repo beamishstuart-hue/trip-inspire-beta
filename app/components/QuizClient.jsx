@@ -328,49 +328,32 @@ export default function QuizClient() {
             ))}
           </div>
 
-          {/* Centered CTA below results */}
-          <div style={{ marginTop: 32, display: 'flex', justifyContent: 'center' }}>
-            <a
-              href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
-              style={{
-                display: 'inline-block',
-                padding: '12px 18px',
-                borderRadius: 12,
-                backgroundColor: '#FFFFF',   // sand cream
-                border: '1px solid #C66A3D',  // terracotta border
-                color: '#C66A3D',             // terracotta text
-                textDecoration: 'none',
-                fontWeight: 600,
-                boxShadow: 'var(--shadow)'
-              }}
-              aria-label="Get a quote for your trip"
-            >
-              Get a quote for your trip
-           <a
-  href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
-  style={{
-    display: 'inline-block',
-    padding: '12px 18px',
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    border: '1px solid #C66A3D',
-    color: '#C66A3D',
-    textDecoration: 'none',
-    fontWeight: 600,
-    boxShadow: 'var(--shadow)',
-    transition: 'opacity .15s ease, box-shadow .15s ease'
-  }}
-  onMouseEnter={e => (e.currentTarget.style.opacity = '0.92')}
-  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-  onFocus={e => (e.currentTarget.style.boxShadow = '0 0 0 3px rgba(198,106,61,0.25)')}
-  onBlur={e => (e.currentTarget.style.boxShadow = 'var(--shadow)')}
->
-  Get a quote for your trip
-</a>
+{/* Centered CTA below results */}
+<div style={{ marginTop: 32, display: 'flex', justifyContent: 'center' }}>
+  <a
+    href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
+    style={{
+      display: 'inline-block',
+      padding: '12px 18px',
+      borderRadius: 12,
+      backgroundColor: '#FFFFFF',   // white
+      border: '1px solid #C66A3D',  // terracotta border
+      color: '#C66A3D',             // terracotta text
+      textDecoration: 'none',
+      fontWeight: 600,
+      boxShadow: 'var(--shadow)',
+      transition: 'opacity .15s ease, box-shadow .15s ease'
+    }}
+    onMouseEnter={e => (e.currentTarget.style.opacity = '0.92')}
+    onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+    onFocus={e => (e.currentTarget.style.boxShadow = '0 0 0 3px rgba(198,106,61,0.25)')}
+    onBlur={e => (e.currentTarget.style.boxShadow = 'var(--shadow)')}
+    aria-label="Get a quote for your trip"
+  >
+    Get a quote for your trip
+  </a>
+</div>
 
-          </div>
-        </>
-      )}
 
       <footer style={{marginTop:40, textAlign:'center', fontSize:13, color:'var(--muted)'}}>
         <a href={MAIN_SITE_URL} style={{color:'var(--brand)'}} rel="noopener">
