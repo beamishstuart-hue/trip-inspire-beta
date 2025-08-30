@@ -1,6 +1,6 @@
 "use client";
 import Feedback from "./Feedback";
-import type { Destination } from "@/lib/destinations";
+import type { Destination } from "../../lib/destinations";
 
 export default function ResultCard({
   d, onShow, answers
@@ -21,7 +21,6 @@ export default function ResultCard({
         </button>
       </div>
 
-      {/* “Why this pick” bullets – keep or tweak */}
       <ul className="text-sm list-disc ml-5 space-y-1">
         {answers?.month && <li>Great in <strong>{answers.monthLabel}</strong></li>}
         {answers?.maxFlight && <li>Within your flight-time comfort</li>}
