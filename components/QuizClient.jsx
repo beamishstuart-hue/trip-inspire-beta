@@ -296,47 +296,43 @@ export default function QuizClient() {
             )}
 
             {!d.days && (
-              <div style={{marginTop:12, display:'flex', gap:12}}>
-                {/* 7-day button */}
-                <button
-                  onClick={()=>buildItinerary(i, '7')}
-                  disabled={d._loading14 || d._loading7}
-                  style={{
-                    flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd',
-                    background: d._loading7 ? '#111' : (d._loading14 ? '#ddd' : '#111'),
-                    color:'#fff', cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
-                    opacity: d._loading14 ? 0.6 : 1
-                  }}
-                >
-                  {d._loading7 ? 'Building…' : 'Show 7-day itinerary'}
-                </button>
+  <div style={{ marginTop: 12, display: 'flex', gap: 12 }}>
+    {/* 7-day button */}
+    <button
+      onClick={() => buildItinerary(i, '7')}
+      disabled={d._loading14 || d._loading7}
+      style={{
+        flex: 1,
+        padding: '10px 14px',
+        borderRadius: 10,
+        border: '1px solid #ddd',
+        // terracotta when active, grey when the *other* button is loading
+        background: d._loading14 ? '#ddd' : '#C66A3D',
+        color: '#fff',
+        cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+        opacity: d._loading14 ? 0.6 : 1
+      }}
+    >
+      {d._loading7 ? 'Preparing…' : 'Show 7-day itinerary'}
+    </button>
 
-                {/* 14-day button */}
-                <button
-                  onClick={()=>buildItinerary(i, '14')}
-                  disabled={d._loading14 || d._loading7}
-                  style={{
-                    flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid #ddd',
-                    background: d._loading14 ? '#444' : (d._loading7 ? '#ddd' : '#444'),
-                    color:'#fff', cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
-                    opacity: d._loading7 ? 0.6 : 1
-                  }}
-                >
-                  {d._loading14 ? 'Building…' : 'Show 14-day itinerary'}
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      <footer style={{marginTop:40, textAlign:'center', fontSize:13, color:'var(--muted)'}}>
-  <a href={MAIN_SITE_URL} style={{color:'var(--brand)'}} rel="noopener">
-    ← Back to The Edit Travel Co
-  </a>
-  <div style={{marginTop:8, opacity:0.8}}>
-    © {new Date().getFullYear()} The Edit Travel Co
+    {/* 14-day button */}
+    <button
+      onClick={() => buildItinerary(i, '14')}
+      disabled={d._loading14 || d._loading7}
+      style={{
+        flex: 1,
+        padding: '10px 14px',
+        borderRadius: 10,
+        border: '1px solid #ddd',
+        // terracotta when active, grey when the *other* button is loading
+        background: d._loading7 ? '#ddd' : '#C66A3D',
+        color: '#fff',
+        cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+        opacity: d._loading7 ? 0.6 : 1
+      }}
+    >
+      {d._loading14 ? 'Preparing…' : 'Show 14-day itinerary'}
+    </button>
   </div>
-</footer>
-    </main>
-  );
-}
+)}
