@@ -249,7 +249,7 @@ export default function QuizClient() {
             <ul style={{marginTop:8}}>
               {d.highlights.map((h,hi)=> <li key={hi}>{h}</li>)}
             </ul>
-          )}
+         ))}
 
           {Array.isArray(d.days) && (
             <div style={{marginTop:12, display:'grid', gap:8}}>
