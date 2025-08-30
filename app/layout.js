@@ -12,7 +12,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <head>
-    <link rel="icon" href="/favicon.ico?v=4" sizes="16x16 32x32 48x48 64x64" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32-v3.png?v=5" />
+<link rel="icon" type="image/x-icon" href="/favicon.ico?v=5" sizes="16x16 32x32 48x48 64x64" />
+<link rel="shortcut icon" href="/favicon.ico?v=5" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=5" />
         <style>{`
           :root{
             /* Brand */
