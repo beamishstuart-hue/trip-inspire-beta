@@ -223,55 +223,121 @@ export default function QuizClient() {
 
       {error && <p style={{marginTop:16, color:'crimson'}}>{error}</p>}
 
-      {/* Share Top 5 (only when we have highlights and before any itinerary is built) */}
-      {top5.length > 0 && top5.every(d => !Array.isArray(d.days)) && (
-        <div style={{marginTop:16}}>
-          <a
-            href={buildTop5Email(top5)}
-            style={{display:'inline-block', padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
-          >
-            📧 Email these Top 5
-          </a>
-        </div>
-      )}
-
-{top5.length > 0 && (
-      <div style={{display:'grid', gap:16, marginTop:24}}>
-        {top5.map((d, i)=>(
-          <div key={`${d.city}-${i}`} style={{background:'var(--card)', padding:16, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
-            <h2 style={{marginTop:0}}>
-              {d.city}{d.country ? `, ${d.country}` : ''}
-            </h2>
-            {d.summary && <p style={{fontStyle:'italic'}}>{d.summary}</p>}
-
-            {!d.days && Array.isArray(d.highlights) && (
-              <ul style={{marginTop:8}}>
-                {d.highlights.map((h,hi)=> <li key={hi}>{h}</li>)}
-              </ul>
-            )}
-
-            {/* Centered CTA below results */}
-{top5.length > 0 && (
-  <div style={{ marginTop: 32, display: 'flex', justifyContent: 'center' }}>
+     {/* Share Top 5 (only when we have highlights and before any itinerary is built) */}
+{top5.length > 0 && top5.every(d => !Array.isArray(d.days)) && (
+  <div style={{marginTop:16}}>
     <a
-      href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
-      style={{
-        display: 'inline-block',
-        padding: '12px 18px',
-        borderRadius: 12,
-        backgroundColor: '#F4EDE6',   // sand cream
-        border: '1px solid #C66A3D',  // terracotta border
-        color: '#C66A3D',             // terracotta text
-        textDecoration: 'none',
-        fontWeight: 600,
-        boxShadow: 'var(--shadow)'
-      }}
-      aria-label="Get a quote for your trip"
+      href={buildTop5Email(top5)}
+      style={{display:'inline-block', padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
     >
-      Get a quote for your trip
+      📧 Email these Top 5
     </a>
   </div>
 )}
+
+{top5.length > 0 && (
+  <>
+    <div style={{display:'grid', gap:16, marginTop:24}}>
+      {top5.map((d, i)=>(
+        <div key={`${d.city}-${i}`} style={{background:'var(--card)', padding:16, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
+          <h2 style={{marginTop:0}}>
+            {d.city}{d.country ? `, ${d.country}` : ''}
+          </h2>
+          {d.summary && <p style={{fontStyle:'italic'}}>{d.summary}</p>}
+
+          {!d.days && Array.isArray(d.highlights) && (
+            <ul style={{marginTop:8}}>
+              {d.highlights.map((h,hi)=> <li key={hi}>{h}</li>)}
+            </ul>
+          )}
+
+          {Array.isArray(d.days) && (
+            <div style={{marginTop:12, display:'grid', gap:8}}>
+              {d.days.map((day,di)=>(
+                <div key={di} style={{padding:'8px 10px', background:'#fafafa', borderRadius:8}}>
+                  <strong>Day {di+1}</strong><br/>
+                  {day.morning && <>Morning: {day.morning}<br/></>}
+                  {day.afternoon && <>Afternoon: {day.afternoon}<br/></>}
+                  {day.evening && <>Evening: {day.evening}</>}
+                </div>
+              ))}
+              <div style={{display:'flex', gap:12, marginTop:8}}>
+                <a
+                  href={buildItineraryEmail({ city: d.city, country: d.country, days: d.days })}
+                  style={{flex:1, textAlign:'center', padding:'10px 14px', borderRadius:10, border:'1px solid #ddd', background:'#fff', color:'#111', textDecoration:'none'}}
+                >
+                  📧 Email this plan
+                </a>
+              </div>
+            </div>
+          )}
+
+          {!d.days && (
+            <div style={{ marginTop: 12, display: 'flex', gap: 12 }}>
+              {/* 7-day button */}
+              <button
+                onClick={() => buildItinerary(i, '7')}
+                disabled={d._loading14 || d._loading7}
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  border: '1px solid #ddd',
+                  backgroundColor: d._loading14 ? '#ddd' : '#C66A3D',
+                  color: '#fff',
+                  cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+                  opacity: d._loading14 ? 0.6 : 1
+                }}
+              >
+                {d._loading7 ? 'Preparing…' : 'Show 7-day itinerary'}
+              </button>
+
+              {/* 14-day button */}
+              <button
+                onClick={() => buildItinerary(i, '14')}
+                disabled={d._loading14 || d._loading7}
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  border: '1px solid #ddd',
+                  backgroundColor: d._loading7 ? '#ddd' : '#C66A3D',
+                  color: '#fff',
+                  cursor: (d._loading14 || d._loading7) ? 'default' : 'pointer',
+                  opacity: d._loading7 ? 0.6 : 1
+                }}
+              >
+                {d._loading14 ? 'Preparing…' : 'Show 14-day itinerary'}
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+
+    {/* Centered CTA below results */}
+    <div style={{ marginTop: 32, display: 'flex', justifyContent: 'center' }}>
+      <a
+        href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
+        style={{
+          display: 'inline-block',
+          padding: '12px 18px',
+          borderRadius: 12,
+          backgroundColor: '#F4EDE6',   // sand cream
+          border: '1px solid #C66A3D',  // terracotta border
+          color: '#C66A3D',             // terracotta text
+          textDecoration: 'none',
+          fontWeight: 600,
+          boxShadow: 'var(--shadow)'
+        }}
+        aria-label="Get a quote for your trip"
+      >
+        Get a quote for your trip
+      </a>
+    </div>
+  </>
+)}  {/* <-- closes the {top5.length > 0 && ( ... ) */}
+
 
             {Array.isArray(d.days) && (
               <div style={{marginTop:12, display:'grid', gap:8}}>
