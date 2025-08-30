@@ -236,16 +236,6 @@ export default function QuizClient() {
       )}
 
 {top5.length > 0 && (
-  <div style={{marginTop:16, display:'flex', flexWrap:'wrap', gap:12}}>
-    <a
-      href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
-      style={{padding:'10px 14px', borderRadius:10, backgroundColor:'#C66A3D', color:'#fff', textDecoration:'none'}}
-    >
-      Get a quote for your trip
-    </a>
-  </div>
-)}
-      
       <div style={{display:'grid', gap:16, marginTop:24}}>
         {top5.map((d, i)=>(
           <div key={`${d.city}-${i}`} style={{background:'var(--card)', padding:16, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
@@ -259,6 +249,29 @@ export default function QuizClient() {
                 {d.highlights.map((h,hi)=> <li key={hi}>{h}</li>)}
               </ul>
             )}
+
+            {/* Centered CTA below results */}
+{top5.length > 0 && (
+  <div style={{ marginTop: 32, display: 'flex', justifyContent: 'center' }}>
+    <a
+      href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
+      style={{
+        display: 'inline-block',
+        padding: '12px 18px',
+        borderRadius: 12,
+        backgroundColor: '#F4EDE6',   // sand cream
+        border: '1px solid #C66A3D',  // terracotta border
+        color: '#C66A3D',             // terracotta text
+        textDecoration: 'none',
+        fontWeight: 600,
+        boxShadow: 'var(--shadow)'
+      }}
+      aria-label="Get a quote for your trip"
+    >
+      Get a quote for your trip
+    </a>
+  </div>
+)}
 
             {Array.isArray(d.days) && (
               <div style={{marginTop:12, display:'grid', gap:8}}>
