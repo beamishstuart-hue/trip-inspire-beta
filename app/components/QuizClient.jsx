@@ -199,9 +199,9 @@ export default function QuizClient() {
           </select>
         </label>
 
-        <button type="submit" style={{padding:'12px 18px', borderRadius:'var(--radius)', border:'1px solid transparent', background:'var(--brand)', color:'#fff', fontSize:16, fontWeight:600, cursor:'pointer', boxShadow:'var(--shadow)'}}>
-          Show My Top 5 Highlights
-        </button>
+        <button type="submit" style={{padding:'12px 18px', borderRadius:'var(--radius)', border:'1px solid transparent', backgroundColor:'#C66A3D', color:'#fff', fontSize:16, fontWeight:600, cursor:'pointer', boxShadow:'var(--shadow)'}}>
+  Show My Top 5 Highlights
+</button>
       </form>
 
       {loading && (
