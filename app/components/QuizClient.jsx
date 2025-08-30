@@ -295,7 +295,7 @@ export default function QuizClient() {
               </div>
             )}
 
-            {!d.days && (
+          {!d.days && (
   <div style={{ marginTop: 12, display: 'flex', gap: 12 }}>
     {/* 7-day button */}
     <button
@@ -333,4 +333,5 @@ export default function QuizClient() {
       {d._loading14 ? 'Preparing…' : 'Show 14-day itinerary'}
     </button>
   </div>
-)}
+)} {/* <-- this closes the {!d.days && ( ... ) block */}
+
