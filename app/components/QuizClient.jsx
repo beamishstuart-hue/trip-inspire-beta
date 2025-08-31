@@ -147,6 +147,11 @@ export default function QuizClient() {
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
+      <style>{`
+  @media (min-width: 768px) {
+    .only-mobile { display: none !important; }
+  }
+`}</style>
       <header style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
   <a href={MAIN_SITE_URL} aria-label="The Edit Travel Co">
     <img
@@ -168,11 +173,17 @@ export default function QuizClient() {
         Travel Matchmaker
       </h1>
 
-      {!logoLoaded && (
-        <p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:8}}>
-          from <strong>The Edit Travel Co</strong>
-        </p>
-      )}
+      {logoLoaded ? (
+  // Logo is showing: keep the line on mobile only
+  <p className="only-mobile" style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:8}}>
+    from <strong>The Edit Travel Co</strong>
+  </p>
+) : (
+  // Logo missing: show the line on all screen sizes
+  <p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:8}}>
+    from <strong>The Edit Travel Co</strong>
+  </p>
+)}
 
       <div style={{fontSize:18, fontWeight:700, marginTop:4}}>
   Meet your perfect trip match
