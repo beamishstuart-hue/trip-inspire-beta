@@ -15,7 +15,7 @@ function buildItineraryEmail({ city, country, days }) {
     if (d.evening)   lines.push(`  • Evening: ${d.evening}`);
     lines.push('');
   });
-  lines.push('— Sent from The Edit Travel Co – Travel Inspiration Assistant');
+  lines.push('— Sent from The Edit Travel Co – Travel Matchmaker');
   const body = encodeURIComponent(lines.join('\n'));
   const subject = encodeURIComponent(title);
   return `mailto:?subject=${subject}&body=${body}`;
@@ -34,7 +34,7 @@ function buildTop5Email(top5 = []) {
     }
     lines.push('');
   });
-  lines.push('— Sent from The Edit Travel Co – Travel Inspiration Assistant');
+  lines.push('— Sent from The Edit Travel Co – Travel Matchmaker');
   const body = encodeURIComponent(lines.join('\n'));
   const subject = encodeURIComponent(title);
   return `mailto:?subject=${subject}&body=${body}`;
@@ -175,12 +175,12 @@ export default function QuizClient() {
       )}
 
       <div style={{fontSize:18, fontWeight:700, marginTop:4}}>
-        Discover Your Perfect Trip
-      </div>
-      <p style={{fontSize:15, color:'var(--muted)', marginTop:6, marginBottom:18}}>
-        Our AI-powered travel assistant asks the right questions to understand your preferences and
-        suggests personalised destinations with daily itineraries.
-      </p>
+  Meet your perfect trip match
+</div>
+<p style={{fontSize:15, color:'var(--muted)', marginTop:6, marginBottom:18}}>
+  No endless scrolling - our speedy quiz turns your travel likes into five tailored ideas, with ready-made itineraries.
+</p>
+
 
       <form onSubmit={onSubmit} style={{display:'grid', gap:20, background:'var(--card)', padding:24, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
         <label>
