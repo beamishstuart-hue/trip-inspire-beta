@@ -148,21 +148,21 @@ export default function QuizClient() {
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
       {/* Header logo (falls back to text if image missing) */}
-      <header style={{display:'flex', justifyContent:'center', marginBottom:8}}>
-        <a href={MAIN_SITE_URL} aria-label="The Edit Travel Co">
-          <picture>
-            <source srcSet="/logo-edit-travel.svg" type="image/svg+xml" />
-            <img
-              src="/logo-edit-travel.png"
-              alt="The Edit Travel Co"
-              height={40}
-              style={{display:'block'}}
-              onLoad={() => setLogoLoaded(true)}
-              onError={() => setLogoLoaded(false)}
-            />
-          </picture>
-        </a>
-      </header>
+     <header style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
+  <a href={MAIN_SITE_URL} aria-label="The Edit Travel Co">
+    <img
+      src="/logo-edit-travel.svg"
+      alt="The Edit Travel Co"
+      onLoad={() => setLogoLoaded(true)}
+      onError={() => setLogoLoaded(false)}
+      style={{
+        height: 'clamp(48px, 8vw, 80px)', // mobile -> desktop sizing
+        width: 'auto',
+        display: 'block'
+      }}
+    />
+  </a>
+</header>
 
       {/* Title + subheader + intro */}
       <h1 style={{fontSize:28, fontWeight:800, marginBottom:4, color:'#C66A3D'}}>
