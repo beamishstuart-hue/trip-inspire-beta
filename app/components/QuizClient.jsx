@@ -44,6 +44,7 @@ export default function QuizClient() {
   const [loading, setLoading] = useState(false);
   const [top5, setTop5] = useState([]);
   const [error, setError] = useState(null);
+  const [logoLoaded, setLogoLoaded] = useState(false);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -146,23 +147,60 @@ export default function QuizClient() {
 
   return (
     <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
-      <h1 style={{fontSize:28, fontWeight:800, marginBottom:4}}>
-        Travel Inspiration Assistant
+      {/* Header logo (falls back to text if image missing) */}
+      <header style={{display:'flex', justifyContent:'center', marginBottom:8}}>
+        <a href={MAIN_SITE_URL} aria-label="The Edit Travel Co">
+          <picture>
+            <source srcSet="/logo-edit-travel.svg" type="image/svg+xml" />
+            <img
+              src="/logo-edit-travel.png"
+              alt="The Edit Travel Co"
+              height={40}
+              style={{display:'block'}}
+              onLoad={() => setLogoLoaded(true)}
+              onError={() => setLogoLoaded(false)}
+            />
+          </picture>
+        </a>
+      </header>
+
+      {/* Title + subheader + intro */}
+      <h1 style={{fontSize:28, fontWeight:800, marginBottom:4, color:'#C66A3D'}}>
+        Travel Matchmaker
       </h1>
-      <p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:24}}>
-        from <strong>The Edit Travel Co</strong>
+
+      {!logoLoaded && (
+        <p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:8}}>
+          from <strong>The Edit Travel Co</strong>
+        </p>
+      )}
+
+      <div style={{fontSize:18, fontWeight:700, marginTop:4}}>
+        Discover Your Perfect Trip
+      </div>
+      <p style={{fontSize:15, color:'var(--muted)', marginTop:6, marginBottom:18}}>
+        Our AI-powered travel assistant asks the right questions to understand your preferences and
+        suggests personalised destinations with daily itineraries.
       </p>
 
       <form onSubmit={onSubmit} style={{display:'grid', gap:20, background:'var(--card)', padding:24, borderRadius:'var(--radius)', boxShadow:'var(--shadow)'}}>
         <label>
           1) Max flight time (hours, non-stop from UK):
-          <input type="range" name="flight_time_hours" min="1" max="20" defaultValue="8" onInput={e=> (e.currentTarget.nextSibling.textContent = e.currentTarget.value+'h')} />
+          <input
+            type="range"
+            name="flight_time_hours"
+            min="1"
+            max="20"
+            defaultValue="8"
+            onInput={e=> (e.currentTarget.nextSibling.textContent = e.currentTarget.value+'h')}
+            style={{width:'100%'}}
+          />
           <span>8h</span>
         </label>
 
         <label>
           2) Trip length:
-          <select name="duration" defaultValue="week-7d">
+          <select name="duration" defaultValue="week-7d" style={{fontSize:15, padding:'6px 8px'}}>
             <option value="weekend-2d">Weekend (2 days)</option>
             <option value="mini-4d">Mini break (4 days)</option>
             <option value="week-7d">One week (7 days)</option>
@@ -172,7 +210,7 @@ export default function QuizClient() {
 
         <label>
           3) Who’s travelling?
-          <select name="group" defaultValue="couple">
+          <select name="group" defaultValue="couple" style={{fontSize:15, padding:'6px 8px'}}>
             <option value="solo">Solo</option>
             <option value="couple">Couple</option>
             <option value="family">Family with kids</option>
@@ -191,7 +229,7 @@ export default function QuizClient() {
 
         <label>
           5) When are you planning to travel?
-          <select name="season" defaultValue="summer">
+          <select name="season" defaultValue="summer" style={{fontSize:15, padding:'6px 8px'}}>
             <option value="spring">Spring (Mar–May)</option>
             <option value="summer">Summer (Jun–Aug)</option>
             <option value="autumn">Autumn (Sep–Nov)</option>
