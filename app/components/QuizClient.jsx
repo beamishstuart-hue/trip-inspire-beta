@@ -379,7 +379,7 @@ export default function QuizClient() {
           {/* Centered CTA below results */}
           <div style={{ marginTop: 32, display: 'flex', justifyContent: 'center' }}>
             <a
-              href="https://edit.travel/contact?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
+              href="https://edit.travel/enquiry?utm_source=ideas&utm_medium=results&utm_campaign=handoff"
               style={{
                 display: 'inline-block',
                 padding: '12px 18px',
