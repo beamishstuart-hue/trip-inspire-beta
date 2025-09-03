@@ -177,7 +177,7 @@ export default function QuizClient() {
   Meet your perfect trip match
 </div>
 <p style={{fontSize:15, color:'var(--muted)', marginTop:6, marginBottom:18}}>
-  No endless scrolling - our speedy quiz turns your travel likes into five tailored ideas, with ready-made itineraries.
+  Our speedy quiz turns your travel likes into five tailored ideas, with ready-made daily itineraries.
 </p>
 
 
