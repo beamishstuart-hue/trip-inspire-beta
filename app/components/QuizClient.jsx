@@ -170,20 +170,8 @@ export default function QuizClient() {
 
       {/* Title + subheader + intro */}
       <h1 style={{fontSize:28, fontWeight:800, marginBottom:4, color:'#C66A3D'}}>
-        Travel Matchmaker
+        The Edit Travel Quiz
       </h1>
-
-      {logoLoaded ? (
-  // Logo is showing: keep the line on mobile only
-  <p className="only-mobile" style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:8}}>
-    from <strong>The Edit Travel Co</strong>
-  </p>
-) : (
-  // Logo missing: show the line on all screen sizes
-  <p style={{fontSize:14, color:'var(--muted)', marginTop:0, marginBottom:8}}>
-    from <strong>The Edit Travel Co</strong>
-  </p>
-)}
 
       <div style={{fontSize:18, fontWeight:700, marginTop:4}}>
   Meet your perfect trip match
