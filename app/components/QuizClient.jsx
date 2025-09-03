@@ -15,7 +15,7 @@ function buildItineraryEmail({ city, country, days }) {
     if (d.evening)   lines.push(`  • Evening: ${d.evening}`);
     lines.push('');
   });
-  lines.push('— Sent from The Edit Travel Co – Travel Matchmaker');
+  lines.push('— Sent from The Edit Travel Co');
   const body = encodeURIComponent(lines.join('\n'));
   const subject = encodeURIComponent(title);
   return `mailto:?subject=${subject}&body=${body}`;
@@ -34,7 +34,7 @@ function buildTop5Email(top5 = []) {
     }
     lines.push('');
   });
-  lines.push('— Sent from The Edit Travel Co – Travel Matchmaker');
+  lines.push('— Sent from The Edit Travel Co');
   const body = encodeURIComponent(lines.join('\n'));
   const subject = encodeURIComponent(title);
   return `mailto:?subject=${subject}&body=${body}`;
