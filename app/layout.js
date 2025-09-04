@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Travel Matchmaker | The Edit Travel Co",
+  title: "The Edit Travel Quiz",
   description: "Your personalised trip inspiration quiz from The Edit Travel Co.",
   icons: {
     icon: '/favicon.ico',  // this pulls from /public
