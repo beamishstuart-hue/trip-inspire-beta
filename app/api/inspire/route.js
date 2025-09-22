@@ -185,6 +185,10 @@ export async function POST(req) {
   const p = body.preferences || {};
   const build = body.buildItineraryFor;
 
+  if (Array.isArray(candidates) && candidates.length > 0) {
+  console.log('[DEBUG one destination]', candidates[0]);
+}
+
   try {
     if (build?.city) {
       const res = await generateItinerary(STRIP(build.city), STRIP(build.country || ''), p);
