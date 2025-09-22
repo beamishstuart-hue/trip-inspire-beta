@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+import { track } from "@/lib/analytics";
+
 'use client';
 import React, { useState } from 'react';
 
