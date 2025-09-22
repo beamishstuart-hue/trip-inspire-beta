@@ -2,7 +2,8 @@
 
 export const metadata = {
   title: "The Edit Travel Quiz",
-  description: "Your personalised trip inspiration quiz from The Edit Travel Co.",
+  description:
+    "Your personalised trip inspiration quiz from The Edit Travel Co.",
   icons: {
     icon: [
       { url: "/favicon.ico?v=5" },
@@ -24,37 +25,40 @@ export default function RootLayout({ children }) {
               src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`}
             />
             <script
-  dangerouslySetInnerHTML={{
-    __html: `
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
+              dangerouslySetInnerHTML={{
+                __html: `
+                  window.dataLayer = window.dataLayer || [];
+                  function gtag(){dataLayer.push(arguments);}
+                  gtag('js', new Date());
 
-      // Default: deny everything until user decides
-      gtag('consent', 'default', {
-        ad_user_data: 'denied',
-        ad_personalization: 'denied',
-        ad_storage: 'denied',
-        analytics_storage: 'denied'
-      });
+                  // Default: deny everything until user decides
+                  gtag('consent', 'default', {
+                    ad_user_data: 'denied',
+                    ad_personalization: 'denied',
+                    ad_storage: 'denied',
+                    analytics_storage: 'denied'
+                  });
 
-      // Enable analytics immediately if user previously consented
-      try {
-        if (localStorage.getItem('consent_analytics') === 'yes') {
-          gtag('consent', 'update', {
-            ad_user_data: 'granted',
-            ad_personalization: 'granted',
-            ad_storage: 'granted',
-            analytics_storage: 'granted'
-          });
-        }
-      } catch(e){}
+                  // Enable analytics immediately if user previously consented
+                  try {
+                    if (localStorage.getItem('consent_analytics') === 'yes') {
+                      gtag('consent', 'update', {
+                        ad_user_data: 'granted',
+                        ad_personalization: 'granted',
+                        ad_storage: 'granted',
+                        analytics_storage: 'granted'
+                      });
+                    }
+                  } catch(e){}
 
-      gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', { anonymize_ip: true });
-    `,
-  }}
+                  gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', { anonymize_ip: true });
+                `,
+              }}
+            />
+          </>
+        )}
 
-        {/* Global styles (from your earlier version) */}
+        {/* Global styles */}
         <style>{`
           :root{
             /* Brand */
