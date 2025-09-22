@@ -221,12 +221,13 @@ export default function QuizClient() {
   ];
 
   return (
-    <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
-      <style>{`
-  @media (min-width: 768px) {
-    .only-mobile { display: none !important; }
-  }
-`}</style>
+  <main style={{maxWidth:800, margin:'32px auto', padding:16}}>
+    <ConsentBanner />   {/* 👈 Banner appears once at the top */}
+    <style>{`
+      @media (min-width: 768px) {
+        .only-mobile { display: none !important; }
+      }
+    `}</style>
       <header style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
   <a href={MAIN_SITE_URL} aria-label="The Edit Travel Co">
     <img
