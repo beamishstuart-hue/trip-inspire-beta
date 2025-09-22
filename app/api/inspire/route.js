@@ -158,9 +158,9 @@ async function generateHighlights(origin, p) {
 
   let content;
   try {
-    content = await callOpenAI([sys, usr], PRIMARY, 700, 0.5);
+    content = await callOpenAI([sys, usr], PRIMARY, 700, 0.65);
   } catch {
-    content = await callOpenAI([sys, usr], FALLBACK, 700, 0.5);
+    content = await callOpenAI([sys, usr], FALLBACK, 700, 0.65);
   }
   const parsed = tryParse(content) || {};
   const raw = Array.isArray(parsed.top5) ? parsed.top5 : [];
