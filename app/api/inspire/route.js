@@ -6,6 +6,36 @@ const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const PRIMARY = 'gpt-4o-mini';
 const FALLBACK = 'gpt-4o';
 
+/* ================= SAFETY FILTER (whole-country & key cities) ================ */
+/* Start simple: whole-country blocks + key Israel cities. 
+   We can add regional/border rules later once we see your data shape. */
+
+const BLOCK_COUNTRIES = new Set([
+  // Whole-country blocks (from your list; you can add/remove anytime)
+  'Afghanistan','Belarus','Burkina Faso','Haiti','Iran','Russia','South Sudan','Syria','Yemen',
+  'Benin','Burundi','Cameroon','Central African Republic','Chad','Congo','Democratic Republic of the Congo',
+  'Djibouti','Eritrea','Ethiopia','Iraq','Lebanon','Libya','Mali','Mauritania','Myanmar (Burma)',
+  'Niger','Nigeria','Pakistan','Somalia','Sudan','Ukraine','Venezuela','Western Sahara','North Korea',
+  'Angola','Bangladesh','Bolivia','Brazil','Colombia','Ghana','Guatemala',
+  'Kosovo','Papua New Guinea','Rwanda','Uganda',
+  // Your specific request:
+  'Israel','The Occupied Palestinian Territories'
+]);
+
+const BLOCK_CITIES = new Set([
+  'Tel Aviv','Jerusalem','Haifa','Eilat','Nazareth'
+]);
+
+function isRestricted(place = {}) {
+  const country = String(place.country || '').trim();
+  const city    = String(place.city || '').trim();
+  if (BLOCK_COUNTRIES.has(country)) return true;
+  if (BLOCK_CITIES.has(city)) return true;
+  return false;
+}
+
+/* =================== UTIL =================== */
+
 const withMeta = (data, meta) => ({ meta, ...data });
 const STRIP = (s='') => s.replace(/\s+/g,' ').trim();
 
@@ -38,15 +68,20 @@ function tryParse(text) {
   return null;
 }
 
-/* ---------------- Prompts ---------------- */
+/* ================ Prompts (with +2h buffer applied) ================= */
 
-function buildHighlightsPrompt(origin, p) {
-  const hours = Math.min(Math.max(Number(p.flight_time_hours) || 8, 1), 20);
+function buildHighlightsPrompt(origin, p, bufferHours = 2) {
+  const raw = Number(p.flight_time_hours);
+  const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
+  const limit = userHours + bufferHours; // wider buffer but still a cap
+
   const groupTxt =
     p.group === 'family' ? 'Family with kids' :
     p.group === 'friends' ? 'Group of friends' :
     p.group === 'couple' ? 'Couple' : 'Solo';
+
   const interestsTxt = Array.isArray(p.interests) && p.interests.length ? p.interests.join(', ') : 'surprise me';
+
   const seasonTxt =
     p.season === 'spring' ? 'Spring (Mar–May)' :
     p.season === 'summer' ? 'Summer (Jun–Aug)' :
@@ -54,7 +89,7 @@ function buildHighlightsPrompt(origin, p) {
     p.season === 'winter' ? 'Winter (Dec–Feb)' : 'Flexible timing';
 
   return [
-`You are Trip Inspire. User origin: ${origin}. Non-stop flight time ≤ ~${hours}h.`,
+`You are Trip Inspire. User origin: ${origin}. Non-stop flight time must be ≤ ~${limit}h. Do not include destinations that require longer non-stop flights.`,
 `Travellers: ${groupTxt}. Interests: ${interestsTxt}. Season: ${seasonTxt}.`,
 `Return JSON ONLY in this exact shape:
 {"top5":[{"city":"...","country":"...","summary":"1–2 lines","highlights":["...", "...", "..."]}]}`,
@@ -78,7 +113,7 @@ function buildItineraryPrompt(city, country, wantDays, p) {
   ].join('\n');
 }
 
-/* --------------- Soft-avoid + diversify --------------- */
+/* ================ Soft-avoid + cleanup ================= */
 
 const AVOID = new Set([
   'lisbon','barcelona','porto','paris','rome','amsterdam','london','madrid','athens','venice',
@@ -95,6 +130,7 @@ function postProcessTop5(list = []) {
     }))
     .filter(x => x.city && x.country && x.highlights.length === 3);
 
+  // de-dup (city+country)
   const seen = new Set();
   const unique = [];
   for (const t of cleaned) {
@@ -109,8 +145,7 @@ function postProcessTop5(list = []) {
   return unique.slice(0,5);
 }
 
-
-/* --------------- Core --------------- */
+/* ================= Core generators ================= */
 
 async function generateHighlights(origin, p) {
   if (!process.env.OPENAI_API_KEY) {
@@ -126,7 +161,7 @@ async function generateHighlights(origin, p) {
   }
 
   const sys = { role:'system', content:'Be concise, concrete, varied across countries, and avoid overused picks unless truly best fit.' };
-  const usr = { role:'user', content: buildHighlightsPrompt(origin, p) };
+  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 2) }; // +2h buffer
 
   let content;
   try {
@@ -137,6 +172,7 @@ async function generateHighlights(origin, p) {
   const parsed = tryParse(content) || {};
   const raw = Array.isArray(parsed.top5) ? parsed.top5 : [];
   const list = postProcessTop5(raw);
+
   return withMeta({ top5: list }, { mode:'live' });
 }
 
@@ -174,31 +210,51 @@ async function generateItinerary(city, country, p) {
   return withMeta({ city, country, days }, { mode:'live', wantDays: want });
 }
 
-/* --------------- Route handlers --------------- */
+/* ================= Route handlers ================= */
 
 export async function GET() {
-  const data = await generateHighlights('LHR', { interests:['Beaches'], group:'couple', season:'summer' });
-  return new Response(JSON.stringify(data), { status:200, headers:{'Content-Type':'application/json'} });
+  const data = await generateHighlights('LHR', { interests:['Beaches'], group:'couple', season:'summer', flight_time_hours: 8 });
+  return NextResponse.json(data);
 }
 
 export async function POST(req) {
-  const body = await req.json().catch(()=> ({}));
-  const origin = body.origin || 'LHR';
-  const p = body.preferences || {};
-  const build = body.buildItineraryFor;
-
-  if (Array.isArray(candidates) && candidates.length > 0) {
-  console.log('[DEBUG one destination]', candidates[0]);
-}
+  let body = null;
 
   try {
+    body = await req.json();                 // read the request body safely
+    const origin = body?.origin || 'LHR';
+    const p = body?.preferences || {};
+    const build = body?.buildItineraryFor;
+
     if (build?.city) {
+      // Build itinerary for a specific Top 5 item
       const res = await generateItinerary(STRIP(build.city), STRIP(build.country || ''), p);
-      return new Response(JSON.stringify(res), { status:200, headers:{'Content-Type':'application/json'} });
+      return NextResponse.json(res);
     }
+
+    // Get Top 5
     const res = await generateHighlights(origin, p);
-    return new Response(JSON.stringify(res), { status:200, headers:{'Content-Type':'application/json'} });
-  } catch (e) {
-    return new Response(JSON.stringify({ error:String(e?.message||e) }), { status:500 });
+
+    // Apply safety filter (remove restricted countries/cities)
+    const top5Safe = (Array.isArray(res.top5) ? res.top5 : []).filter(d => !isRestricted(d));
+
+    // Return filtered results with original meta
+    return NextResponse.json({ ...res, top5: top5Safe });
+
+  } catch (err) {
+    // Print the error so you can see it in Vercel → Deployments → Functions
+    console.error('API ERROR:', {
+      message: err?.message,
+      stack: err?.stack,
+      bodySummary: body ? {
+        hasPrefs: !!body?.preferences,
+        hasBuildItineraryFor: !!body?.buildItineraryFor,
+      } : null
+    });
+
+    return NextResponse.json(
+      { error: 'Something went wrong in /api/inspire' },
+      { status: 500 }
+    );
   }
 }
