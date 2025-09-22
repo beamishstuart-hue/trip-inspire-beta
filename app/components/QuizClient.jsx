@@ -2,6 +2,44 @@
 import React, { useEffect, useState } from 'react';
 import { track } from '../../lib/analytics';
 
+import { setConsent, hasConsent } from '../../lib/consent';
+
+function ConsentBanner() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (!hasConsent()) setShow(true);
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <div style={{
+      position:'fixed', bottom:16, left:16, right:16, maxWidth:800, margin:'0 auto',
+      background:'#fff', border:'1px solid #ddd', borderRadius:12, padding:12,
+      boxShadow:'var(--shadow)', zIndex:9999
+    }}>
+      <div style={{fontSize:14, marginBottom:8}}>
+        We use cookies for analytics to improve this quiz. You can accept or continue without analytics.
+      </div>
+      <div style={{display:'flex', gap:8, justifyContent:'flex-end'}}>
+        <button
+          onClick={() => { setConsent(false); setShow(false); }}
+          style={{padding:'8px 12px', borderRadius:8}}
+        >
+          Continue without analytics
+        </button>
+        <button
+          onClick={() => { setConsent(true); setShow(false); }}
+          style={{padding:'8px 12px', borderRadius:8, background:'#C66A3D', color:'#fff'}}
+        >
+          Accept analytics
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const MAIN_SITE_URL = 'https://edit.travel';
 
 /* --- format a mailto body from an itinerary --- */
