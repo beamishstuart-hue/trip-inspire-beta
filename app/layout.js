@@ -1,10 +1,28 @@
+// app/layout.js
+
+export const metadata = {
+  title: "The Edit Travel Quiz",
+  description: "Your personalised trip inspiration quiz from The Edit Travel Co.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico?v=5" },
+      { url: "/favicon-32-v3.png?v=5", type: "image/png", sizes: "32x32" },
+    ],
+    apple: "/apple-touch-icon.png?v=5",
+  },
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <head>
+        {/* GA4 */}
         {process.env.NEXT_PUBLIC_GA_ID && (
           <>
-            <script async src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`} />
+            <script
+              async
+              src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`}
+            />
             <script
               dangerouslySetInnerHTML={{
                 __html: `
@@ -13,36 +31,17 @@ export default function RootLayout({ children }) {
                   gtag('js', new Date());
                   gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', {
                     anonymize_ip: true,
+                    debug_mode: true
                   });
+                  // Optional: quick test event so you can see DebugView light up
+                  gtag('event', 'test_ping', { source: 'layout' });
                 `,
               }}
             />
           </>
         )}
-      </head>
-      <body>{children}</body>
-    </html>
-  );
-}
 
-export const metadata = {
-  title: "The Edit Travel Quiz",
-  description: "Your personalised trip inspiration quiz from The Edit Travel Co.",
-  icons: {
-    icon: '/favicon.ico',  // this pulls from /public
-  },
-};
-
-
-
-export default function RootLayout({ children }) {
-  return (
-    <html lang="en">
-      <head>
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32-v3.png?v=5" />
-<link rel="icon" type="image/x-icon" href="/favicon.ico?v=5" sizes="16x16 32x32 48x48 64x64" />
-<link rel="shortcut icon" href="/favicon.ico?v=5" />
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=5" />
+        {/* Global styles (from your earlier version) */}
         <style>{`
           :root{
             /* Brand */
