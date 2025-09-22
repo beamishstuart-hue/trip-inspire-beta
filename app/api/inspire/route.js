@@ -235,6 +235,11 @@ export async function POST(req) {
     // Get Top 5
     const res = await generateHighlights(origin, p);
 
+     // TEMP: log the first destination for debugging
+if (Array.isArray(res.top5) && res.top5.length > 0) {
+  console.log('[DEBUG destination example]', res.top5[0]);
+}
+
     // Apply safety filter (remove restricted countries/cities)
     const top5Safe = (Array.isArray(res.top5) ? res.top5 : []).filter(d => !isRestricted(d));
 
