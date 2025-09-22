@@ -483,6 +483,20 @@ export default function QuizClient() {
               Get a quote for your trip
             </a>
           </div>
+          {/* Safety disclaimer */}
+<div style={{
+  marginTop: 24,
+  fontSize: 13,
+  color: 'var(--muted)',
+  textAlign: 'center',
+  maxWidth: 600,
+  marginLeft: 'auto',
+  marginRight: 'auto',
+  lineHeight: 1.4
+}}>
+  <strong>Travel safety disclaimer:</strong> Please always check the latest guidance from the UK Foreign, Commonwealth &amp; Development Office (FCDO) 
+  or your local government before booking travel.
+</div>
         </>
       )}
 
