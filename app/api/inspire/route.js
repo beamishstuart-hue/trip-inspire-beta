@@ -153,12 +153,6 @@ async function generateHighlights(origin, p) {
     }, { mode:'sample' });
   }
 
-// was 0.5 — raise slightly for more variety
-content = await callOpenAI([sys, usr], PRIMARY, 700, 0.65);
-...
-content = await callOpenAI([sys, usr], FALLBACK, 700, 0.65);
-
-   
   const sys = { role:'system', content:'Be concise, concrete, varied across countries, and avoid overused picks unless truly best fit.' };
   const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 2) }; // +2h buffer
 
