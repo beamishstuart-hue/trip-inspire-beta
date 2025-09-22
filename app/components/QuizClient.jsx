@@ -536,12 +536,28 @@ export default function QuizClient() {
   <strong>Travel safety disclaimer:</strong> Please always check the latest guidance from the UK Foreign, Commonwealth &amp; Development Office (FCDO) 
   or your local government before booking travel.
 </div>
-          <div style={{marginTop:8, opacity:0.8}}>
-  <a href="/privacy" style={{color:'var(--brand)', marginRight:12}}>Privacy</a>
-  <a href="https://www.gov.uk/foreign-travel-advice" target="_blank" rel="noopener" style={{color:'var(--brand)'}}>
+          <div
+  style={{
+    marginTop: 8,
+    opacity: 0.8,
+    display: 'flex',
+    justifyContent: 'center',
+    gap: 12,             // space between links
+    flexWrap: 'wrap',    // tidy on small screens
+    textAlign: 'center',
+  }}
+>
+  <a href="/privacy" style={{ color: 'var(--brand)' }}>Privacy</a>
+  <a
+    href="https://www.gov.uk/foreign-travel-advice"
+    target="_blank"
+    rel="noopener noreferrer"
+    style={{ color: 'var(--brand)' }}
+  >
     Check UK travel advice
   </a>
 </div>
+
         </>
       )}
 
