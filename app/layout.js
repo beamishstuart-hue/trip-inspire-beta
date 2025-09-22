@@ -24,22 +24,37 @@ export default function RootLayout({ children }) {
               src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_ID}`}
             />
             <script
-              dangerouslySetInnerHTML={{
-                __html: `
-                  window.dataLayer = window.dataLayer || [];
-                  function gtag(){dataLayer.push(arguments);}
-                  gtag('js', new Date());
-                  gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', {
-                    anonymize_ip: true,
-                    debug_mode: true
-                  });
-                  // Optional: quick test event so you can see DebugView light up
-                  gtag('event', 'test_ping', { source: 'layout' });
-                `,
-              }}
-            />
-          </>
-        )}
+  dangerouslySetInnerHTML={{
+    __html: `
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      // Default: deny everything until user decides
+      gtag('consent', 'default', {
+        ad_user_data: 'denied',
+        ad_personalization: 'denied',
+        ad_storage: 'denied',
+        analytics_storage: 'denied'
+      });
+
+      // Enable analytics immediately if user previously consented
+      try {
+        if (localStorage.getItem('consent_analytics') === 'yes') {
+          gtag('consent', 'update', {
+            ad_user_data: 'granted',
+            ad_personalization: 'granted',
+            ad_storage: 'granted',
+            analytics_storage: 'granted'
+          });
+        }
+      } catch(e){}
+
+      gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', { anonymize_ip: true });
+    `,
+  }}
+/>
+
 
         {/* Global styles (from your earlier version) */}
         <style>{`
