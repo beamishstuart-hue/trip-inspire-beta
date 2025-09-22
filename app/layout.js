@@ -53,8 +53,6 @@ export default function RootLayout({ children }) {
       gtag('config', '${process.env.NEXT_PUBLIC_GA_ID}', { anonymize_ip: true });
     `,
   }}
-/>
-
 
         {/* Global styles (from your earlier version) */}
         <style>{`
