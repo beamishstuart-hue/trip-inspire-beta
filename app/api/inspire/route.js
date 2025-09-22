@@ -73,14 +73,16 @@ function tryParse(text) {
 function buildHighlightsPrompt(origin, p, bufferHours = 2) {
   const raw = Number(p.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-  const limit = userHours + bufferHours; // wider buffer but still a cap
+  const limit = userHours + bufferHours; // keep the buffer
 
   const groupTxt =
     p.group === 'family' ? 'Family with kids' :
     p.group === 'friends' ? 'Group of friends' :
     p.group === 'couple' ? 'Couple' : 'Solo';
 
-  const interestsTxt = Array.isArray(p.interests) && p.interests.length ? p.interests.join(', ') : 'surprise me';
+  const interestsTxt = Array.isArray(p.interests) && p.interests.length
+    ? p.interests.join(', ')
+    : 'surprise me';
 
   const seasonTxt =
     p.season === 'spring' ? 'Spring (Mar–May)' :
@@ -94,22 +96,13 @@ function buildHighlightsPrompt(origin, p, bufferHours = 2) {
 `Return JSON ONLY in this exact shape:
 {"top5":[{"city":"...","country":"...","summary":"1–2 lines","highlights":["...", "...", "..."]}]}`,
 `HARD RULES:
-- Return EXACTLY FIVE destinations in "top5", ideally different countries; strongly avoid overused picks like Lisbon, Barcelona, Porto, Paris, Rome, Amsterdam unless they are an unusually strong fit for the stated interests/season/flight-time.
+- Return EXACTLY FIVE destinations in "top5".
+- Cover AT LEAST 3 different countries across the five.
+- Aim for a mix of types (e.g., at least one city, one coastal/beach, one nature/outdoors) where relevant to the interests/season.
+- Strongly avoid overused picks like Lisbon, Barcelona, Porto, Paris, Rome, Amsterdam unless they are an unusually strong fit for the stated interests/season/flight-time.
 - Each "highlights" array has EXACTLY 3 concise, specific items with named anchors (street/venue/landmark) and one micro-detail (dish/view/sound).
-- No itineraries, no mornings/afternoons/evenings here.`
-  ].join('\n');
-}
-
-function buildItineraryPrompt(city, country, wantDays, p) {
-  return [
-`Build an exact-day itinerary for: ${city}${country ? ', ' + country : ''}.`,
-`Trip length: EXACTLY ${wantDays} days. Travellers: ${p.group || 'Couple'}. Interests: ${(p.interests||[]).join(', ') || 'surprise me'}. Season: ${p.season || 'flexible'}.`,
-`Return JSON ONLY:
-{"days":[{"morning":"...","afternoon":"...","evening":"..."}]}`,
-`Rules:
-- Each slot includes a named anchor and a micro-detail; keep slots under ~25 words.
-- Avoid filler like "optional stroll"/"relaxing dinner"/"free time".
-- Include at least one rain fallback note across the plan.`
+- No itineraries, no mornings/afternoons/evenings here.
+- Avoid returning the identical set of 5 destinations across runs; where possible, vary at least 2 picks even with the same inputs.`
   ].join('\n');
 }
 
