@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const PRIMARY = 'gpt-4o-mini';
 const FALLBACK = 'gpt-4o';
-const OPENAI_TIMEOUT_MS = 18000; // hard timeout so the route never hangs
+const OPENAI_TIMEOUT_MS = 18000; // keep timeouts so we never hang
 
 /* ================= SAFETY FILTER (whole-country & key cities) ================ */
 
@@ -78,24 +78,25 @@ function tryParse(text) {
   return null;
 }
 
-/* =============== Region bands (force long-haul when allowed) ================= */
+/* =============== Region bands (balance long-haul vs Europe) ================= */
 
 const EUROPE_NAMES = new Set(['europe','western_europe','central_europe','southern_europe','northern_europe','eastern_europe']);
+
 function regionPolicyForHours(userHours) {
   if (userHours >= 8) {
     return {
       minHours: Math.max(6, Math.floor(userHours * 0.65)),
       priorityRegions: ['north_america','caribbean','middle_east','east_africa','indian_ocean'],
-      maxEuropeInTop5: 2,
-      minPriorityInTop5: 3
+      maxEuropeInTop5: 3,   // was 2 → allow up to 3 Europe
+      minPriorityInTop5: 2  // was 3 → require only 2 long-haul priority
     };
   }
   if (userHours >= 7) {
     return {
       minHours: 6,
       priorityRegions: ['middle_east','east_africa','caucasus'],
-      maxEuropeInTop5: 3,
-      minPriorityInTop5: 2
+      maxEuropeInTop5: 3,   // was 3 (same)
+      minPriorityInTop5: 1  // was 2 → ease up
     };
   }
   if (userHours >= 6) {
@@ -103,7 +104,7 @@ function regionPolicyForHours(userHours) {
       minHours: 5,
       priorityRegions: ['north_africa','atlantic_islands'],
       maxEuropeInTop5: 4,
-      minPriorityInTop5: 2
+      minPriorityInTop5: 1  // was 2 → ease up
     };
   }
   return { minHours: 0, priorityRegions: [], maxEuropeInTop5: 5, minPriorityInTop5: 0 };
@@ -114,7 +115,7 @@ function regionPolicyForHours(userHours) {
 function buildHighlightsPrompt(origin, p, bufferHours, excludes, regionPolicy) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-  const limit = userHours + bufferHours;
+  const limit = userHours + bufferHours; // now 1.5h
 
   const groupTxt =
     p?.group === 'family' ? 'Family with kids' :
@@ -138,7 +139,7 @@ function buildHighlightsPrompt(origin, p, bufferHours, excludes, regionPolicy) {
   const pri = regionPolicy.priorityRegions.join(', ') || 'no special priority';
   const bandLine = regionPolicy.minHours > 0
     ? `Prefer candidates clustered in the ${regionPolicy.minHours}–${limit}h band. Include AT LEAST ${Math.max(6, regionPolicy.minPriorityInTop5)*2} candidates with approx_nonstop_hours ≥ ${regionPolicy.minHours}h.`
-    : `Prefer shorter flights up to ${limit}h.`;
+    : `Prefer flights up to ~${limit}h.`;
 
   const REGION_ENUM = [
     'europe','north_africa','atlantic_islands','middle_east','east_africa','indian_ocean',
@@ -205,7 +206,7 @@ Rules:
 `.trim();
 }
 
-/* ================ Selection (long-haul preference + robust backfill) ================= */
+/* ================ Selection (soften short-haul penalty; cap Europe gently) ================= */
 
 const AVOID = new Set([
   'lisbon','barcelona','porto','paris','rome','amsterdam','london','madrid','athens','venice',
@@ -265,10 +266,9 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     return true;
   });
 
-  // If the model didn't provide hours, don't throw everything away—keep them for later backfill
   const unknownHours = cleaned.filter(x => x.approx_nonstop_hours == null);
 
-  // Score with long-haul and region preferences
+  // Score with long-haul and region preferences (softer short-haul penalty)
   const scored = hard.map((it, i) => {
     const cityLc = it.city.toLowerCase();
     const key = `${cityLc}|${it.country.toLowerCase()}`;
@@ -276,7 +276,7 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
 
     if (regionPolicy.minHours > 0) {
       const h = it.approx_nonstop_hours ?? 0;
-      if (h >= regionPolicy.minHours) score += 0.12; else score -= 0.25;
+      if (h >= regionPolicy.minHours) score += 0.10; else score -= 0.12; // was -0.25
     }
     if (regionPolicy.priorityRegions.includes(it.region)) score += 0.12;
 
@@ -288,7 +288,7 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     return { ...it, _score: score };
   }).sort((a, b) => b._score - a._score);
 
-  // Greedy selection: enforce country variety, priority quota, and Europe cap
+  // Greedy selection: priority quota, country diversity, gentle Europe cap
   const picked = [];
   const seenCityCountry = new Set();
   const seenCountry = new Set();
@@ -296,7 +296,7 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
   const pushIfNew = (it) => {
     const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
     if (seenCityCountry.has(key)) return false;
-    // Europe cap
+    // Europe cap (now looser via regionPolicy)
     if (EUROPE_NAMES.has((it.region||'').toLowerCase())) {
       const europeCount = picked.filter(p => EUROPE_NAMES.has(p.region)).length;
       if (europeCount >= (regionPolicy.maxEuropeInTop5 ?? 5)) return false;
@@ -308,7 +308,7 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     return true;
   };
 
-  // 1) Priority region quota (long-haul bias)
+  // 1) Priority region quota first (long-haul bias but lighter)
   for (const it of scored) {
     if (picked.length >= regionPolicy.minPriorityInTop5) break;
     if (regionPolicy.priorityRegions.includes(it.region)) pushIfNew(it);
@@ -320,38 +320,35 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     if (!seenCountry.has(it.country.toLowerCase())) pushIfNew(it);
   }
 
-  // 3) Fill to 5 by best score (respect cap)
+  // 3) Fill to 5 by best score (respecting Europe cap)
   for (const it of scored) {
     if (picked.length >= 5) break;
     pushIfNew(it);
   }
 
-  // 4) RELAXATION PATHS — never return <5
-  // 4a) If still short, ignore Europe cap
+  // Relaxations to guarantee 5
   if (picked.length < 5) {
-    for (const it of scored) {
+    for (const it of scored) { // ignore Europe cap if needed
+      if (picked.length >= 5) break;
       const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
       if (seenCityCountry.has(key)) continue;
       picked.push(it); seenCityCountry.add(key); seenCountry.add(it.country.toLowerCase()); noteRecent(it.city, it.country);
-      if (picked.length === 5) break;
     }
   }
-  // 4b) If still short, allow items with unknown hours
   if (picked.length < 5) {
     for (const it of unknownHours) {
+      if (picked.length >= 5) break;
       const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
       if (seenCityCountry.has(key)) continue;
       picked.push(it); seenCityCountry.add(key); seenCountry.add(it.country.toLowerCase()); noteRecent(it.city, it.country);
-      if (picked.length === 5) break;
     }
   }
-  // 4c) If still short, re-include AVOID if we must (last resort)
   if (picked.length < 5) {
     for (const it of cleaned) {
+      if (picked.length >= 5) break;
       const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
       if (seenCityCountry.has(key)) continue;
       picked.push(it); seenCityCountry.add(key); seenCountry.add(it.country.toLowerCase()); noteRecent(it.city, it.country);
-      if (picked.length === 5) break;
     }
   }
 
@@ -361,30 +358,25 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
 /* ================= Fallback candidate pool (used on timeout/errors) ================= */
 
 function fallbackCandidates(origin, userHours) {
-  // A broad, region-labelled pool (approx hours from LHR); we’ll filter by policy.
   return [
-    // Europe (kept small; policy caps it anyway)
+    // Europe
     { city:'Reykjavik', country:'Iceland', region:'europe', type:'nature', approx_nonstop_hours:3.0, summary:'Geothermal sights', highlights:['Blue Lagoon','Golden Circle','Hallgrímskirkja'] },
     { city:'Porto', country:'Portugal', region:'europe', type:'city', approx_nonstop_hours:2.0, summary:'Ribeira & vinho do Porto', highlights:['Dom Luís I Bridge','Livraria Lello','Francesinha'] },
+    { city:'Seville', country:'Spain', region:'europe', type:'city', approx_nonstop_hours:2.5, summary:'Moorish palaces & tapas', highlights:['Alcázar','Plaza de España','Triana tapas'] },
 
     // North Africa / Atlantic Islands (6h band)
     { city:'Marrakech', country:'Morocco', region:'north_africa', type:'city', approx_nonstop_hours:3.5, summary:'Souks & riads', highlights:['Jemaa el-Fnaa','Jardin Majorelle','Bahia Palace'] },
-    { city:'Agadir', country:'Morocco', region:'north_africa', type:'beach', approx_nonstop_hours:3.5, summary:'Atlantic beaches & surf', highlights:['Agadir Beach','Souk El Had','Marina walk'] },
     { city:'Tenerife', country:'Spain (Canaries)', region:'atlantic_islands', type:'beach', approx_nonstop_hours:4.5, summary:'Volcano views & beaches', highlights:['Teide cable car','Los Gigantes','Playa del Duque'] },
-    { city:'Funchal', country:'Portugal (Madeira)', region:'atlantic_islands', type:'nature', approx_nonstop_hours:3.9, summary:'Levadas & gardens', highlights:['Monte cable car','25 Fontes','Mercado dos Lavradores'] },
     { city:'Sal', country:'Cape Verde', region:'atlantic_islands', type:'beach', approx_nonstop_hours:6.0, summary:'Year-round sun & kitesurf', highlights:['Santa Maria','Kite Beach','Salt pans'] },
 
     // Middle East / East Africa (7h band)
     { city:'Dubai', country:'UAE', region:'middle_east', type:'city', approx_nonstop_hours:7.0, summary:'Skyline, desert, winter sun', highlights:['Burj Khalifa','Madinat Jumeirah','Desert dunes'] },
     { city:'Muscat', country:'Oman', region:'middle_east', type:'nature', approx_nonstop_hours:7.5, summary:'Coast, wadis, forts', highlights:['Mutrah Corniche','Wadi Shab','Nizwa Fort'] },
-    { city:'Nairobi', country:'Kenya', region:'east_africa', type:'nature', approx_nonstop_hours:8.5, summary:'Gateway to safari', highlights:['Nairobi NP','Giraffe Centre','Karen Blixen'] },
 
     // North America / Caribbean (8–10h band)
-    { city:'New York', country:'USA', region:'north_america', type:'city', approx_nonstop_hours:7.5, summary:'Big-ticket culture & food', highlights:['High Line','Broadway','Brooklyn pizza'] },
-    { city:'Boston', country:'USA', region:'north_america', type:'city', approx_nonstop_hours:7.0, summary:'Harbor, history, campuses', highlights:['Freedom Trail','Harvard Sq','North End'] },
-    { city:'Montreal', country:'Canada', region:'north_america', type:'city', approx_nonstop_hours:6.5, summary:'Bilingual culture & food', highlights:['Old Montreal','Mount Royal','Bagels'] },
+    { city:'New York', country:'USA', region:'north_america', type:'city', approx_nonstop_hours:7.5, summary:'Culture & food', highlights:['High Line','Broadway','Brooklyn pizza'] },
+    { city:'Montreal', country:'Canada', region:'north_america', type:'city', approx_nonstop_hours:6.5, summary:'Bilingual culture', highlights:['Old Montreal','Mount Royal','Bagels'] },
     { city:'Barbados', country:'Barbados', region:'caribbean', type:'beach', approx_nonstop_hours:8.5, summary:'Caribbean beaches & rum', highlights:['Carlisle Bay','Oistins','Harrison’s Cave'] },
-    { city:'Bermuda', country:'UK Territory', region:'north_america', type:'beach', approx_nonstop_hours:7.0, summary:'Pink-sand coves', highlights:['Horseshoe Bay','St. George’s','Crystal Caves'] },
   ];
 }
 
@@ -394,11 +386,11 @@ async function generateHighlights(origin, p, excludes = []) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
   const regionPolicy = regionPolicyForHours(userHours);
-  const limit = userHours + 2;
+  const limit = userHours + 1.5; // <<< 90-minute buffer
 
   const seed = `${origin}|${userHours}|${(p?.interests && p.interests[0]) || ''}|${Math.floor(Date.now()/3600000)}`;
 
-  // If no key, return from curated fallback (fast and robust)
+  // No key → curated fallback
   if (!process.env.OPENAI_API_KEY) {
     const cands = fallbackCandidates(origin, userHours);
     const top5 = pickTop5FromCandidates(cands, limit, excludes, seed, regionPolicy);
@@ -406,7 +398,7 @@ async function generateHighlights(origin, p, excludes = []) {
   }
 
   const sys = { role:'system', content:'Return JSON only. Include a valid "region" from the enum; include "approx_nonstop_hours".' };
-  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 2, excludes, regionPolicy) };
+  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 1.5, excludes, regionPolicy) }; // <<< 90-minute buffer in prompt
 
   let parsed = null;
   try {
@@ -416,16 +408,10 @@ async function generateHighlights(origin, p, excludes = []) {
       content = await callOpenAI([sys, usr], FALLBACK, 1200, 0.92);
       parsed = tryParse(content) || null;
     }
-  } catch (e) {
-    // timeout or fetch error — fall back
-    parsed = null;
-  }
+  } catch {}
 
-  // If the model failed or returned junk, fall back to curated pool
   let cands = parsed ? parseCandidates(parsed) : [];
-  if (!Array.isArray(cands) || cands.length === 0) {
-    cands = fallbackCandidates(origin, userHours);
-  }
+  if (!Array.isArray(cands) || cands.length === 0) cands = fallbackCandidates(origin, userHours);
 
   const top5 = pickTop5FromCandidates(cands, limit, excludes, seed, regionPolicy);
   return withMeta({ top5 }, { mode:'live' });
@@ -507,12 +493,12 @@ export async function POST(req) {
       } : null
     });
 
-    // Even on error, return 200 with a safe fallback so the UI never goes blank
+    // Error fallback (still honors 90-min buffer and region policy)
     const p = body?.preferences || {};
     const raw = Number(p?.flight_time_hours);
     const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
     const regionPolicy = regionPolicyForHours(userHours);
-    const limit = userHours + 2;
+    const limit = userHours + 1.5;
     const cands = fallbackCandidates('LHR', userHours);
     const seed = `err|${Date.now()}`;
     const top5 = pickTop5FromCandidates(cands, limit, [], seed, regionPolicy);
