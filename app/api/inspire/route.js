@@ -311,37 +311,38 @@ async function generateHighlights(origin, p, excludes = []) {
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
   const limit = userHours + 2;
 
+  // If user allows ≥8h, we *prefer* long-haul: set a lower bound band (≈65% of user limit, min 6h)
+  const minHours = userHours >= 8 ? Math.max(6, Math.floor(userHours * 0.65)) : 0;
+
   // Seed to vary ordering: origin + hours + first interest + current hour bucket
   const seed = `${origin}|${userHours}|${(p?.interests && p.interests[0]) || ''}|${Math.floor(Date.now()/3600000)}`;
 
   if (!process.env.OPENAI_API_KEY) {
     const sample = [
       { city:'Valencia', country:'Spain', type:'city',  approx_nonstop_hours:2.5, summary:'Beachy city with paella & modernism', highlights:['Ciudad de las Artes','La Pepica paella','El Cabanyal tiles'] },
-      { city:'Dubrovnik',country:'Croatia',type:'city', approx_nonstop_hours:2.8, summary:'Walled old town & Adriatic views',   highlights:['City Walls loop','Srđ cable car','Sea kayak caves'] },
-      { city:'Palermo',  country:'Italy',  type:'city',  approx_nonstop_hours:3.0, summary:'Markets, mosaics, Arab–Norman mix', highlights:['Ballarò market','Cappella Palatina','Via Maqueda cannoli'] },
-      { city:'Funchal',  country:'Portugal (Madeira)', type:'nature', approx_nonstop_hours:3.9, summary:'Levadas & gardens', highlights:['Monte cable car','25 Fontes levada','Mercado dos Lavradores'] },
-      { city:'Málaga',   country:'Spain',  type:'beach', approx_nonstop_hours:2.7, summary:'Museums & tapas culture',           highlights:['Alcazaba ramparts','Picasso Museum','Calle Larios tapas'] },
-      { city:'Corfu',    country:'Greece', type:'beach', approx_nonstop_hours:3.2, summary:'Ionian beaches & old town',         highlights:['Old Fortress','Paleokastritsa','Liston esplanade'] },
-      { city:'Innsbruck',country:'Austria',type:'nature',approx_nonstop_hours:2.0, summary:'Alpine views & hiking',             highlights:['Nordkette cable car','Old Town arcades','Bergisel Ski Jump'] },
-      { city:'Catania',  country:'Italy',  type:'city',  approx_nonstop_hours:3.3, summary:'Sicilian baroque & Etna gateway',   highlights:['Piazza del Duomo','La Pescheria market','Via Etnea stroll'] },
-      { city:'Nice',     country:'France', type:'beach', approx_nonstop_hours:2.0, summary:'Riviera promenades & markets',      highlights:['Promenade des Anglais','Cours Saleya','Castle Hill view'] },
+      { city:'Dubai',    country:'UAE',   type:'city',  approx_nonstop_hours:7.0, summary:'Skyline, desert, warm winter sun',   highlights:['Burj Khalifa view','Madinat Jumeirah','Desert dune drive'] },
+      { city:'New York', country:'USA',   type:'city',  approx_nonstop_hours:7.5, summary:'Big-ticket culture & food',         highlights:['High Line walk','Broadway show','Brooklyn pizza'] },
+      { city:'Mauritius',country:'Mauritius',type:'beach', approx_nonstop_hours:11.5, summary:'Tropical lagoons & reefs',       highlights:['Île aux Cerfs','Chamarel Seven Coloured Earths','Catamaran cruise'] },
+      { city:'Muscat',   country:'Oman',  type:'nature',approx_nonstop_hours:7.5, summary:'Coast, wadis, forts',                highlights:['Mutrah Corniche','Wadi Shab','Nizwa Fort'] },
+      { city:'Catania',  country:'Italy', type:'city',  approx_nonstop_hours:3.3, summary:'Sicilian baroque & Etna gateway',   highlights:['Piazza del Duomo','La Pescheria market','Via Etnea stroll'] },
+      { city:'Cancún',   country:'Mexico',type:'beach', approx_nonstop_hours:10.0, summary:'Caribbean resorts & cenotes',       highlights:['Playa Delfines','Chichén Itzá (day trip)','Cenote swim'] },
     ];
-    return withMeta({ top5: pickTop5FromCandidates(sample, limit, excludes, seed) }, { mode:'sample' });
+    return withMeta({ top5: pickTop5FromCandidates(sample, limit, excludes, seed, minHours) }, { mode:'sample' });
   }
 
   const sys = { role:'system', content:'Return JSON only. Be concrete, country-diverse, and include type + approximate non-stop hours.' };
-  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 2, excludes) };
+  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 2, excludes, minHours) };
 
   let content;
   try {
-    content = await callOpenAI([sys, usr], PRIMARY, 1100, 0.9);
+    content = await callOpenAI([sys, usr], PRIMARY, 1200, 0.92);
   } catch {
-    content = await callOpenAI([sys, usr], FALLBACK, 1100, 0.9);
+    content = await callOpenAI([sys, usr], FALLBACK, 1200, 0.92);
   }
 
   const parsed = tryParse(content) || {};
   const cands = parseCandidates(parsed);
-  const top5 = pickTop5FromCandidates(cands, limit, excludes, seed);
+  const top5 = pickTop5FromCandidates(cands, limit, excludes, seed, minHours);
 
   return withMeta({ top5 }, { mode:'live' });
 }
