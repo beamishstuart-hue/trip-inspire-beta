@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const PRIMARY = 'gpt-4o-mini';
 const FALLBACK = 'gpt-4o';
-const OPENAI_TIMEOUT_MS = 10000; // fast, prevents timeouts
+const OPENAI_TIMEOUT_MS = 10000; // fast & reliable
 
-/* ================= SAFETY FILTER (countries & specific cities) ================ */
+/* ================= SAFETY FILTERS ================= */
 const BLOCK_COUNTRIES = new Set([
   'Afghanistan','Belarus','Burkina Faso','Haiti','Iran','Russia','South Sudan','Syria','Yemen',
   'Benin','Burundi','Cameroon','Central African Republic','Chad','Congo','Democratic Republic of the Congo',
@@ -28,7 +28,7 @@ function isRestricted(place = {}) {
   return false;
 }
 
-/* =================== UTIL =================== */
+/* ================= UTIL ================= */
 const STRIP = (s='') => String(s).replace(/\s+/g,' ').trim();
 const withMeta = (data, meta) => ({ meta, ...data });
 
@@ -42,9 +42,8 @@ function daysWanted(dur) {
   return 7;
 }
 
-/* ================= Flight-time policy =================
-   One uniform buffer (30m). Region floors prevent obvious underestimates. */
-const TIME_BUFFER = 0.5;
+/* ================= FLIGHT-TIME POLICY ================= */
+const TIME_BUFFER = 0.5; // 30 min for all caps
 
 const REGION_ENUM = [
   'europe','north_africa','atlantic_islands','middle_east','east_africa','indian_ocean',
@@ -54,9 +53,9 @@ const REGION_ENUM = [
 
 const MIN_HOURS_BY_REGION = {
   europe: 0,
-  north_africa: 3.7,        // LHR–RAK/CMN ~3.7–4.2
-  atlantic_islands: 3.8,    // Madeira/Canaries ~3.8–4.5
-  middle_east: 5.8,         // Dubai/Doha/Abu Dhabi ≥ ~6–7
+  north_africa: 3.7,
+  atlantic_islands: 3.8,
+  middle_east: 5.8,
   east_africa: 7.0,
   indian_ocean: 9.0,
   north_america: 6.5,
@@ -76,7 +75,7 @@ function clampHoursByRegion(hours, region) {
   return Math.max(hours, floor);
 }
 
-/* ================= OpenAI helper ================= */
+/* ================= OPENAI ================= */
 async function callOpenAI(messages, model, max_tokens=800, temperature=0.35, timeoutMs=OPENAI_TIMEOUT_MS) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
@@ -109,7 +108,7 @@ function tryParse(text) {
   return null;
 }
 
-/* ================= Canonical interests (for scoring) ================= */
+/* ================= INTERESTS CANON ================= */
 const CANON_MAP = [
   [/beach|beaches|coast|island/i, 'beach'],
   [/nature|hiking|outdoors|national park|alps|mountain|lakes/i, 'nature'],
@@ -131,7 +130,6 @@ const CANON_MAP = [
   [/festival|carnival/i, 'festival'],
   [/all[-\s]*inclusive/i, 'all_inclusive'],
 ];
-
 function canonizeInterests(list) {
   const out = new Set();
   for (const raw of (Array.isArray(list) ? list : [])) {
@@ -141,7 +139,7 @@ function canonizeInterests(list) {
   return out;
 }
 
-/* ================= Prompt (compact, quiz-led) ================= */
+/* ================= PROMPTS ================= */
 function buildCandidatesPrompt(origin, prefs, limit) {
   const groupTxt =
     prefs?.group === 'family' ? 'family with kids' :
@@ -185,7 +183,7 @@ function buildCandidatesPrompt(origin, prefs, limit) {
   ].join('\n');
 }
 
-/* ================= Fallbacks (small, sentence style) ================= */
+/* ================= FALLBACK POOLS ================= */
 function fallbackShorthaulEU() {
   return [
     { city:'Cagliari', country:'Italy', region:'europe', type:'beach',
@@ -224,7 +222,7 @@ function fallbackShorthaulEU() {
       themes:['city','beach','food'], best_seasons:['spring','summer','autumn'], approx_nonstop_hours:2.3,
       summary:'Beachside modernism, paella traditions, and neighborhood markets',
       highlights:[
-        'Wander Calatrava’s City of Arts before horchata under shady colonnades.',
+        'Wander the City of Arts before horchata beneath shady colonnades.',
         'Eat paella by the sand at La Pepica after a boardwalk stroll.',
         'Browse Central Market’s citrus pyramids and jamón counters.'
       ]}
@@ -275,7 +273,7 @@ function fallbackMixed() {
   ];
 }
 
-/* ================= Scoring (simple, quiz-led; no arbitrary gates) ================= */
+/* ================= NORMALIZE & SCORING ================= */
 function normalizeCandidates(raw) {
   return (Array.isArray(raw) ? raw : []).map(x => {
     const region = STRIP((x.region || '').toString()).toLowerCase();
@@ -296,66 +294,83 @@ function normalizeCandidates(raw) {
   }).filter(c => c.city && c.country && !isRestricted(c));
 }
 
+function ensure3Highlights(c) {
+  if (!Array.isArray(c.highlights)) c.highlights = [];
+  while (c.highlights.length < 3) {
+    c.highlights.push(`Visit a signature place in ${c.city} that fits your selected interests this season.`);
+  }
+  c.highlights = c.highlights.slice(0,3);
+}
+
 function scoreCandidate(c, prefs, limit, canonInterests) {
-  // Hard cap
+  // Drop if over cap
   const h = c.approx_nonstop_hours;
   if (h != null && h > limit) return -Infinity;
 
-  // Interest fit
+  // Interest fit (no hard filter anymore)
   let hits = 0;
   for (const t of canonInterests) if (c.themes.includes(t)) hits++;
   const interestScore = canonInterests.size ? (hits / canonInterests.size) : 0.3;
 
-  // Extra boost for beach interest + beach type/theme
+  // Beach presence boost when asked
   const beachBoost = canonInterests.has('beach') && (c.type === 'beach' || c.themes.includes('beach')) ? 0.3 : 0;
 
   // Season fit
   const season = String(prefs?.season || '').toLowerCase();
   const seasonFit = season && c.best_seasons.includes(season) ? 0.15 : 0;
 
-  // Group hints (light)
+  // Group hints
   const groupFit =
     prefs?.group === 'family' && c.themes.includes('family') ? 0.1 :
     prefs?.group === 'friends' && c.themes.includes('nightlife') ? 0.05 :
     prefs?.group === 'couple'  && (c.themes.includes('luxury') || c.themes.includes('wellness')) ? 0.05 : 0;
 
-  // Slight preference for being within 70–100% of cap
+  // Slight preference for using the cap effectively
   let hoursFit = 0;
   if (Number.isFinite(h)) {
     const pct = h / limit;
     if (pct >= 0.7 && pct <= 1.0) hoursFit = 0.05;
   }
 
-  // Validate highlights (penalize if missing)
-  const highlightsOk = Array.isArray(c.highlights) && c.highlights.length >= 3;
-  const highlightPenalty = highlightsOk ? 0 : -0.2;
+  // Penalize missing highlights slightly (we repair later)
+  const highlightPenalty = Array.isArray(c.highlights) && c.highlights.length >= 3 ? 0 : -0.15;
 
   return 1.0 + 1.0*interestScore + beachBoost + seasonFit + groupFit + hoursFit + highlightPenalty;
 }
 
-function pickTop5(cands, prefs, limit, excludes=[]) {
+function pickTop5(cands, prefs, limit, excludes=[], hoursForFallback=8) {
   const excludeSet = new Set((Array.isArray(excludes) ? excludes : []).map(s => STRIP(s).toLowerCase()));
   const canonInterests = canonizeInterests(prefs?.interests);
 
-  // Filter by cap/excludes and ensure at least one interest match when interests provided
+  // Filter only for cap/excludes; DO NOT hard-filter by interests anymore
   let pool = normalizeCandidates(cands).filter(c => {
     if (excludeSet.has(c.city.toLowerCase())) return false;
     const key = `${c.city.toLowerCase()}|${c.country.toLowerCase()}`;
     if (excludeSet.has(key)) return false;
     if (c.approx_nonstop_hours != null && c.approx_nonstop_hours > limit) return false;
-    if (canonInterests.size) {
-      const anyHit = c.themes.some(t => canonInterests.has(t));
-      if (!anyHit) return false; // enforce at least one thematic match
-    }
     return true;
   });
 
-  // Score and sort
-  const scored = pool.map(c => ({ c, s: scoreCandidate(c, prefs, limit, canonInterests) }))
-                     .filter(x => x.s > -Infinity)
-                     .sort((a, b) => b.s - a.s);
+  // Score & sort
+  let scored = pool.map(c => ({ c, s: scoreCandidate(c, prefs, limit, canonInterests) }))
+                   .filter(x => x.s > -Infinity)
+                   .sort((a, b) => b.s - a.s);
 
-  // Country diversity cap: max 2 per country (but allow fill later)
+  // If we still have too few candidates (<5), extend with curated fallback pool filtered by cap
+  if (scored.length < 5) {
+    const fbRaw = hoursForFallback <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
+    const fbNorm = normalizeCandidates(fbRaw).filter(c => c.approx_nonstop_hours == null || c.approx_nonstop_hours <= limit);
+    const fbScored = fbNorm.map(c => ({ c, s: scoreCandidate(c, prefs, limit, canonInterests) }));
+    // merge unique (city|country) into scored
+    const seen = new Set(scored.map(x => `${x.c.city.toLowerCase()}|${x.c.country.toLowerCase()}`));
+    for (const x of fbScored) {
+      const key = `${x.c.city.toLowerCase()}|${x.c.country.toLowerCase()}`;
+      if (!seen.has(key)) { scored.push(x); seen.add(key); }
+    }
+    scored.sort((a,b)=>b.s-a.s);
+  }
+
+  // Greedy: cap 2 per country (soft), then fill to 5
   const picked = [];
   const perCountry = new Map();
   for (const { c } of scored) {
@@ -365,8 +380,15 @@ function pickTop5(cands, prefs, limit, excludes=[]) {
     perCountry.set(c.country.toLowerCase(), cnt + 1);
     if (picked.length === 5) break;
   }
+  if (picked.length < 5) {
+    for (const { c } of scored) {
+      if (picked.find(p => p.city === c.city && p.country === c.country)) continue;
+      picked.push(c);
+      if (picked.length === 5) break;
+    }
+  }
 
-  // Ensure at least one BEAC H when requested
+  // Ensure at least one beach when requested
   if (canonInterests.has('beach') && !picked.some(p => p.type === 'beach' || p.themes.includes('beach'))) {
     const beachCand = scored.find(({ c }) =>
       (c.type === 'beach' || c.themes.includes('beach')) &&
@@ -378,40 +400,29 @@ function pickTop5(cands, prefs, limit, excludes=[]) {
     }
   }
 
-  // If fewer than 5 (model under-delivered), allow same-country to fill
-  if (picked.length < 5) {
-    for (const { c } of scored) {
-      if (picked.find(p => p.city === c.city && p.country === c.country)) continue;
-      picked.push(c);
-      if (picked.length === 5) break;
-    }
+  // Repair highlights and return exactly 5
+  for (const p of picked) ensure3Highlights(p);
+  while (picked.length < 5) {
+    // as last resort, duplicate best-scoring with slight wording repair (rare)
+    const best = scored.find(({ c }) => !picked.find(p => p.city === c.city && p.country === c.country));
+    if (!best) break;
+    const clone = { ...best.c };
+    ensure3Highlights(clone);
+    picked.push(clone);
   }
-
-  // Final repair of highlights (rare)
-  for (const p of picked) {
-    if (!Array.isArray(p.highlights) || p.highlights.length < 3) {
-      const need = 3 - (Array.isArray(p.highlights) ? p.highlights.length : 0);
-      const fill = [];
-      for (let i = 0; i < need; i++) {
-        fill.push(`Visit a signature spot in ${p.city} aligned to your selected interests this season.`);
-      }
-      p.highlights = (p.highlights || []).concat(fill).slice(0,3);
-    }
-  }
-
   return picked.slice(0,5);
 }
 
-/* ================= Core generation ================= */
+/* ================= CORE GENERATORS ================= */
 async function generateHighlights(origin, prefs, excludes = []) {
   const raw = Number(prefs?.flight_time_hours);
   const hours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
   const limit = hours + TIME_BUFFER;
 
-  // No key → curated fallback that still respects the cap
+  // No key → curated fallback, still scored by quiz
   if (!process.env.OPENAI_API_KEY) {
     const fb = hours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
-    return withMeta({ top5: pickTop5(fb, prefs, limit, excludes) }, { mode:'sample' });
+    return withMeta({ top5: pickTop5(fb, prefs, limit, excludes, hours) }, { mode:'sample' });
   }
 
   const prompt = buildCandidatesPrompt(origin, prefs, limit);
@@ -433,11 +444,11 @@ async function generateHighlights(origin, prefs, excludes = []) {
     cands = fb;
   }
 
-  const top5 = pickTop5(cands, prefs, limit, excludes);
+  const top5 = pickTop5(cands, prefs, limit, excludes, hours);
   return withMeta({ top5 }, { mode: parsed ? 'live' : 'error-fallback' });
 }
 
-/* ================= Itinerary (unchanged, concise) ================= */
+/* ================= ITINERARY ================= */
 function buildItineraryPrompt(city, country = '', days = 3, prefs = {}) {
   const groupTxt =
     prefs.group === 'family' ? 'Family with kids' :
@@ -510,9 +521,9 @@ async function generateItinerary(city, country, prefs) {
   return withMeta({ city, country, days }, { mode: parsed ? 'live' : 'error-fallback', wantDays: want });
 }
 
-/* ================= Route handlers ================= */
+/* ================= ROUTES ================= */
 export async function GET() {
-  const data = await generateHighlights('LHR', { interests:['Beaches'], group:'couple', season:'summer', flight_time_hours: 4 }, []);
+  const data = await generateHighlights('LHR', { interests:['Beaches'], group:'couple', season:'summer', flight_time_hours: 7 }, []);
   return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } });
 }
 
@@ -541,13 +552,13 @@ export async function POST(req) {
       bodySummary: body ? { hasPrefs: !!body?.preferences, hasBuildItineraryFor: !!body?.buildItineraryFor } : null
     });
 
-    // Final fallback (quick, quiz-led)
+    // Final fallback (quiz-led scoring on curated pool)
     const prefs = body?.preferences || {};
     const raw = Number(prefs?.flight_time_hours);
     const hours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
     const limit = hours + TIME_BUFFER;
     const fb = hours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
-    const top5 = pickTop5(fb, prefs, limit, []);
+    const top5 = pickTop5(fb, prefs, limit, [], hours);
     return NextResponse.json({ meta:{ mode:'error-fallback', error: err?.message || 'unknown' }, top5 }, { status: 200 });
   }
 }
