@@ -216,7 +216,7 @@ function seededJitter(seedStr, i) {
   return ((h >>> 0) % 4000) / 100000 - 0.02;
 }
 
-function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x') {
+function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', minHours = 0) {
   const excludeSet = new Set((Array.isArray(excludes)?excludes:[]).map(x => STRIP(x).toLowerCase()));
   const cleaned = (Array.isArray(cands) ? cands : []).map(x => {
     const hours = Number(x.approx_nonstop_hours);
@@ -232,7 +232,7 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x') {
     x.city && x.country && x.highlights.length === 3
   );
 
-  // Hard filters: restricted, avoid list, explicit excludes, flight-time cutoff
+  // Hard filters
   const hard = cleaned.filter(x => {
     const cityLc = x.city.toLowerCase();
     const key = `${cityLc}|${x.country.toLowerCase()}`;
@@ -243,30 +243,34 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x') {
     return true;
   });
 
-  // Score & downrank repeats
-  const scored = hard.map((it, i) => {
-    const cityLc = it.city.toLowerCase();
-    const key = `${cityLc}|${it.country.toLowerCase()}`;
+  // Split by hours band if we want long-haul
+  const longhaul = minHours > 0 ? hard.filter(x => (x.approx_nonstop_hours ?? 0) >= minHours) : hard;
+  const shorthail = minHours > 0 ? hard.filter(x => (x.approx_nonstop_hours ?? 0) <  minHours) : [];
 
-    let score = 1.0;
+  // Score (downrank repeats etc.) + small jitter
+  function scoreList(list) {
+    return list.map((it, i) => {
+      const cityLc = it.city.toLowerCase();
+      const key = `${cityLc}|${it.country.toLowerCase()}`;
+      let score = 1.0;
+      if (DOWNRANK.has(cityLc)) score -= 0.15;
+      if (RECENT_SET.has(key)) score -= 0.2;
+      if (it.approx_nonstop_hours == null) score -= 0.05;
+      // Prefer being inside the desired long-haul band if set
+      if (minHours > 0) {
+        const h = it.approx_nonstop_hours ?? 0;
+        if (h >= minHours) score += 0.08;
+        else score -= 0.25;
+      }
+      score += seededJitter(seed, i);
+      return { ...it, _score: score };
+    }).sort((a, b) => b._score - a._score);
+  }
 
-    // Downrank your frequent offenders, but not a hard ban
-    if (DOWNRANK.has(cityLc)) score -= 0.15;
+  const scoredLong  = scoreList(longhaul);
+  const scoredShort = scoreList(shorthail);
 
-    // Cooldown: if we just showed this on this lambda, push it down
-    if (RECENT_SET.has(key)) score -= 0.2;
-
-    // Prefer items that include an informative hours estimate
-    if (it.approx_nonstop_hours == null) score -= 0.05;
-
-    // Gentle diversity by type — boost if we don't have this type yet (handled again in pick stage)
-    // (Applied later during picks; here we only add a tiny jitter)
-    score += seededJitter(seed, i);
-
-    return { ...it, _score: score };
-  }).sort((a, b) => b._score - a._score);
-
-  // Country & type diversity with greedy selection
+  // Greedy selection with country & type diversity
   const picked = [];
   const seenCityCountry = new Set();
   const seenCountry = new Set();
@@ -281,22 +285,28 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x') {
     return true;
   }
 
-  // Pass 1: ensure country diversity first
-  for (const it of scored) {
+  // Pass 1: try to build from LONG-HAUL first
+  for (const it of scoredLong) {
     if (!seenCountry.has(it.country.toLowerCase())) {
       if (pushIfNew(it) && picked.length === 5) break;
     }
   }
 
-  // Pass 2: ensure we cover city/beach/nature at least once if possible
+  // Pass 2: ensure type coverage (city/beach/nature) from LONG-HAUL pool if possible
   for (const t of ['city','beach','nature']) {
     if (picked.find(p => p.type === t)) continue;
-    const cand = scored.find(i => i.type === t && !seenCityCountry.has(`${i.city.toLowerCase()}|${i.country.toLowerCase()}`));
+    const cand = scoredLong.find(i => i.type === t && !seenCityCountry.has(`${i.city.toLowerCase()}|${i.country.toLowerCase()}`));
     if (cand) { pushIfNew(cand); if (picked.length === 5) break; }
   }
 
-  // Pass 3: fill remaining up to 5 by score
-  for (const it of scored) {
+  // Pass 3: fill remaining from LONG-HAUL
+  for (const it of scoredLong) {
+    if (picked.length === 5) break;
+    pushIfNew(it);
+  }
+
+  // Pass 4: if still short, fill from SHORT-HAUL
+  for (const it of scoredShort) {
     if (picked.length === 5) break;
     pushIfNew(it);
   }
