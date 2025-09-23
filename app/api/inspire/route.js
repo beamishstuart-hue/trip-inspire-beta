@@ -44,7 +44,7 @@ function daysWanted(dur) {
   return 7;
 }
 
-async function callOpenAI(messages, model, max_tokens=1000, temperature=0.85) {
+async function callOpenAI(messages, model, max_tokens=1100, temperature=0.9) {
   const res = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
@@ -76,7 +76,7 @@ function tryParse(text) {
 function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = []) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-  const limit = userHours + bufferHours; // stricter use below too
+  const limit = userHours + bufferHours;
 
   const groupTxt =
     p?.group === 'family' ? 'Family with kids' :
@@ -97,19 +97,18 @@ function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = []) {
     ? `Exclude these cities (any country): ${excludes.join(', ')}.`
     : '';
 
-  // We ask for a larger "candidates" pool; we'll post-filter to 5 using hard rules.
   return [
 `You are Trip Inspire. Origin airport: ${origin}.`,
 `Return JSON ONLY in this exact shape:
 {"candidates":[
   {"city":"...","country":"...","type":"city|beach|nature|culture","approx_nonstop_hours":7,
    "summary":"1–2 lines","highlights":["...", "...", "..."] }
-  // 10–12 items total
+  // 12 items total
 ]}`,
 `Constraints:
 - Non-stop flight time must be ≤ ~${limit}h from ${origin}. Provide your best estimate in "approx_nonstop_hours".
 - Travellers: ${groupTxt}. Interests: ${interestsTxt}. Season: ${seasonTxt}.
-- Cover AT LEAST 5 different countries across the full candidate list.
+- Cover AT LEAST 6 different countries across the full candidate list.
 - Aim for a mix of types: include some of each: city, beach/coast, and nature/outdoors where relevant.
 - Avoid overused picks like Lisbon, Barcelona, Porto, Paris, Rome, Amsterdam unless uniquely suited.
 - Each "highlights" array has EXACTLY 3 concise, specific items with named anchors + one micro-detail (dish/view/sound).
@@ -120,7 +119,6 @@ ${excludeLine}
   ].filter(Boolean).join('\n');
 }
 
-// Itinerary prompt (unchanged behaviour)
 function buildItineraryPrompt(city, country = '', days = 3, prefs = {}) {
   const groupTxt =
     prefs.group === 'family' ? 'Family with kids' :
@@ -156,12 +154,30 @@ Rules:
 `.trim();
 }
 
-/* ================ Repeat blocker + candidate selection ================= */
+/* ================ Repeat blocker + selection ================= */
 
+// Soft avoid (generic Europe repeats)
 const AVOID = new Set([
   'lisbon','barcelona','porto','paris','rome','amsterdam','london','madrid','athens','venice',
   'florence','berlin','prague','vienna','budapest','dublin'
 ]);
+
+// Downrank the specific repeat offenders you observed (not a hard ban)
+const DOWNRANK = new Set(['valencia','catania','dubrovnik','nice']);
+
+// In-memory cooldown (per lambda instance). Ephemeral but helps short-term repeats.
+const RECENT_MAX = 30;
+const RECENT = []; // array of keys "city|country"
+const RECENT_SET = new Set();
+function noteRecent(city, country) {
+  const key = `${city.toLowerCase()}|${country.toLowerCase()}`;
+  if (RECENT_SET.has(key)) return;
+  RECENT.push(key); RECENT_SET.add(key);
+  while (RECENT.length > RECENT_MAX) {
+    const old = RECENT.shift();
+    if (old) RECENT_SET.delete(old);
+  }
+}
 
 const TYPE_ALIASES = {
   city: 'city', cities: 'city', urban: 'city', culture: 'culture',
@@ -172,11 +188,10 @@ function normType(t) {
   const k = STRIP(t).toLowerCase();
   return TYPE_ALIASES[k] || (k.includes('beach') ? 'beach'
                     : k.includes('city') ? 'city'
-                    : k.includes('nature') || k.includes('outdoor') ? 'nature'
+                    : (k.includes('nature') || k.includes('outdoor')) ? 'nature'
                     : k.includes('culture') ? 'culture'
                     : 'city');
 }
-const wantsTypeSet = new Set(['city','beach','nature']); // we aim to include at least one of each if available
 
 function parseCandidates(parsedObj) {
   if (Array.isArray(parsedObj?.candidates)) return parsedObj.candidates;
@@ -184,8 +199,19 @@ function parseCandidates(parsedObj) {
   return [];
 }
 
-function pickTop5FromCandidates(cands, limitHours, excludes = []) {
-  // Clean + normalize
+// Small seeded jitter to vary order between runs (stable per input)
+function seededJitter(seedStr, i) {
+  let h = 2166136261;
+  const s = (seedStr + '|' + i);
+  for (let c = 0; c < s.length; c++) {
+    h ^= s.charCodeAt(c);
+    h = Math.imul(h, 16777619);
+  }
+  // map to [-0.02, +0.02]
+  return ((h >>> 0) % 4000) / 100000 - 0.02;
+}
+
+function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x') {
   const excludeSet = new Set((Array.isArray(excludes)?excludes:[]).map(x => STRIP(x).toLowerCase()));
   const cleaned = (Array.isArray(cands) ? cands : []).map(x => {
     const hours = Number(x.approx_nonstop_hours);
@@ -201,54 +227,71 @@ function pickTop5FromCandidates(cands, limitHours, excludes = []) {
     x.city && x.country && x.highlights.length === 3
   );
 
-  // Hard filters: restricted, avoid list, user excludes, and flight-time cutoff (if hours present)
+  // Hard filters: restricted, avoid list, explicit excludes, flight-time cutoff
   const hard = cleaned.filter(x => {
     const cityLc = x.city.toLowerCase();
+    const key = `${cityLc}|${x.country.toLowerCase()}`;
     if (isRestricted(x)) return false;
     if (AVOID.has(cityLc)) return false;
-    if (excludeSet.has(cityLc) || excludeSet.has(`${cityLc}|${x.country.toLowerCase()}`)) return false;
+    if (excludeSet.has(cityLc) || excludeSet.has(key)) return false;
     if (x.approx_nonstop_hours != null && x.approx_nonstop_hours > limitHours) return false;
     return true;
   });
 
-  // Country & type diversity
-  const byCountry = new Map(); // country -> items[]
-  hard.forEach(item => {
-    const key = item.country.toLowerCase();
-    if (!byCountry.has(key)) byCountry.set(key, []);
-    byCountry.get(key).push(item);
-  });
+  // Score & downrank repeats
+  const scored = hard.map((it, i) => {
+    const cityLc = it.city.toLowerCase();
+    const key = `${cityLc}|${it.country.toLowerCase()}`;
 
-  // Greedy pick: ensure at least one of each desired type if possible
+    let score = 1.0;
+
+    // Downrank your frequent offenders, but not a hard ban
+    if (DOWNRANK.has(cityLc)) score -= 0.15;
+
+    // Cooldown: if we just showed this on this lambda, push it down
+    if (RECENT_SET.has(key)) score -= 0.2;
+
+    // Prefer items that include an informative hours estimate
+    if (it.approx_nonstop_hours == null) score -= 0.05;
+
+    // Gentle diversity by type — boost if we don't have this type yet (handled again in pick stage)
+    // (Applied later during picks; here we only add a tiny jitter)
+    score += seededJitter(seed, i);
+
+    return { ...it, _score: score };
+  }).sort((a, b) => b._score - a._score);
+
+  // Country & type diversity with greedy selection
   const picked = [];
   const seenCityCountry = new Set();
+  const seenCountry = new Set();
 
   function pushIfNew(it) {
     const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
     if (seenCityCountry.has(key)) return false;
     picked.push(it);
     seenCityCountry.add(key);
+    seenCountry.add(it.country.toLowerCase());
+    noteRecent(it.city, it.country);
     return true;
   }
 
-  // Pass 1: uniqueness by country
-  for (const [, items] of byCountry) {
-    // Prefer items with type we still need
-    const needType = items.find(i => wantsTypeSet.has(i.type) && !picked.find(p => p.type === i.type));
-    if (needType && pushIfNew(needType) && picked.length === 5) break;
-    // else first available
-    if (!needType && items[0] && pushIfNew(items[0]) && picked.length === 5) break;
+  // Pass 1: ensure country diversity first
+  for (const it of scored) {
+    if (!seenCountry.has(it.country.toLowerCase())) {
+      if (pushIfNew(it) && picked.length === 5) break;
+    }
   }
 
-  // Pass 2: ensure type coverage (at least one city, one beach, one nature) if available
+  // Pass 2: ensure we cover city/beach/nature at least once if possible
   for (const t of ['city','beach','nature']) {
     if (picked.find(p => p.type === t)) continue;
-    const cand = hard.find(i => i.type === t && !seenCityCountry.has(`${i.city.toLowerCase()}|${i.country.toLowerCase()}`));
+    const cand = scored.find(i => i.type === t && !seenCityCountry.has(`${i.city.toLowerCase()}|${i.country.toLowerCase()}`));
     if (cand) { pushIfNew(cand); if (picked.length === 5) break; }
   }
 
-  // Pass 3: fill remaining up to 5
-  for (const it of hard) {
+  // Pass 3: fill remaining up to 5 by score
+  for (const it of scored) {
     if (picked.length === 5) break;
     pushIfNew(it);
   }
@@ -261,20 +304,24 @@ function pickTop5FromCandidates(cands, limitHours, excludes = []) {
 async function generateHighlights(origin, p, excludes = []) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-  const limit = userHours + 2; // same as prompt, enforced here
+  const limit = userHours + 2;
+
+  // Seed to vary ordering: origin + hours + first interest + current hour bucket
+  const seed = `${origin}|${userHours}|${(p?.interests && p.interests[0]) || ''}|${Math.floor(Date.now()/3600000)}`;
 
   if (!process.env.OPENAI_API_KEY) {
-    // Sample fallback (contains hours & type so filters work)
     const sample = [
-      { city:'Valencia', country:'Spain', type:'city',  approx_nonstop_hours:2.5, summary:'Beachy city with paella & modernism', highlights:['Ciudad de las Artes','Paella at La Pepica','El Cabanyal tiles'] },
+      { city:'Valencia', country:'Spain', type:'city',  approx_nonstop_hours:2.5, summary:'Beachy city with paella & modernism', highlights:['Ciudad de las Artes','La Pepica paella','El Cabanyal tiles'] },
       { city:'Dubrovnik',country:'Croatia',type:'city', approx_nonstop_hours:2.8, summary:'Walled old town & Adriatic views',   highlights:['City Walls loop','Srđ cable car','Sea kayak caves'] },
       { city:'Palermo',  country:'Italy',  type:'city',  approx_nonstop_hours:3.0, summary:'Markets, mosaics, Arab–Norman mix', highlights:['Ballarò market','Cappella Palatina','Via Maqueda cannoli'] },
       { city:'Funchal',  country:'Portugal (Madeira)', type:'nature', approx_nonstop_hours:3.9, summary:'Levadas & gardens', highlights:['Monte cable car','25 Fontes levada','Mercado dos Lavradores'] },
       { city:'Málaga',   country:'Spain',  type:'beach', approx_nonstop_hours:2.7, summary:'Museums & tapas culture',           highlights:['Alcazaba ramparts','Picasso Museum','Calle Larios tapas'] },
       { city:'Corfu',    country:'Greece', type:'beach', approx_nonstop_hours:3.2, summary:'Ionian beaches & old town',         highlights:['Old Fortress','Paleokastritsa','Liston esplanade'] },
       { city:'Innsbruck',country:'Austria',type:'nature',approx_nonstop_hours:2.0, summary:'Alpine views & hiking',             highlights:['Nordkette cable car','Old Town arcades','Bergisel Ski Jump'] },
+      { city:'Catania',  country:'Italy',  type:'city',  approx_nonstop_hours:3.3, summary:'Sicilian baroque & Etna gateway',   highlights:['Piazza del Duomo','La Pescheria market','Via Etnea stroll'] },
+      { city:'Nice',     country:'France', type:'beach', approx_nonstop_hours:2.0, summary:'Riviera promenades & markets',      highlights:['Promenade des Anglais','Cours Saleya','Castle Hill view'] },
     ];
-    return withMeta({ top5: pickTop5FromCandidates(sample, limit, excludes) }, { mode:'sample' });
+    return withMeta({ top5: pickTop5FromCandidates(sample, limit, excludes, seed) }, { mode:'sample' });
   }
 
   const sys = { role:'system', content:'Return JSON only. Be concrete, country-diverse, and include type + approximate non-stop hours.' };
@@ -289,7 +336,7 @@ async function generateHighlights(origin, p, excludes = []) {
 
   const parsed = tryParse(content) || {};
   const cands = parseCandidates(parsed);
-  const top5 = pickTop5FromCandidates(cands, limit, excludes);
+  const top5 = pickTop5FromCandidates(cands, limit, excludes, seed);
 
   return withMeta({ top5 }, { mode:'live' });
 }
@@ -347,7 +394,7 @@ export async function POST(req) {
     const p = body?.preferences || {};
     const build = body?.buildItineraryFor;
 
-    // Optional explicit excludes from client (e.g., last results shown)
+    // Optional explicit excludes from client (e.g., last shown cities)
     const excludes = Array.isArray(body?.exclude) ? body.exclude : [];
 
     if (build?.city) {
@@ -357,7 +404,6 @@ export async function POST(req) {
 
     const res = await generateHighlights(origin, p, excludes);
 
-    // Final safety filter (restricted countries/cities)
     const top5Safe = (Array.isArray(res.top5) ? res.top5 : []).filter(d => !isRestricted(d));
 
     return NextResponse.json({ ...res, top5: top5Safe });
