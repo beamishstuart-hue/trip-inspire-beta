@@ -73,7 +73,7 @@ function tryParse(text) {
 
 /* ================ Prompts ================= */
 
-function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = []) {
+function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = [], minHours = 0) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
   const limit = userHours + bufferHours;
@@ -97,6 +97,10 @@ function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = []) {
     ? `Exclude these cities (any country): ${excludes.join(', ')}.`
     : '';
 
+  const bandLine = minHours > 0
+    ? `Prefer candidates clustered in the ${minHours}–${limit}h range. Include AT LEAST 6 candidates with approx_nonstop_hours ≥ ${minHours}h. Avoid short-haul (< ${minHours}h) unless needed to reach 12 items.`
+    : `Prefer candidates up to ${limit}h; shorter flights are fine.`;
+
   return [
 `You are Trip Inspire. Origin airport: ${origin}.`,
 `Return JSON ONLY in this exact shape:
@@ -107,6 +111,7 @@ function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = []) {
 ]}`,
 `Constraints:
 - Non-stop flight time must be ≤ ~${limit}h from ${origin}. Provide your best estimate in "approx_nonstop_hours".
+- ${bandLine}
 - Travellers: ${groupTxt}. Interests: ${interestsTxt}. Season: ${seasonTxt}.
 - Cover AT LEAST 6 different countries across the full candidate list.
 - Aim for a mix of types: include some of each: city, beach/coast, and nature/outdoors where relevant.
