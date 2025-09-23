@@ -111,12 +111,38 @@ function regionPolicyForHours(userHours) {
   return { minHours: 0, priorityRegions: [], maxEuropeInTop5: 5, minPriorityInTop5: 0 };
 }
 
-/* ================ Prompt (30-minute buffer + sentence highlights) ================= */
+/* ====== Dynamic buffer (strict for very short-haul) ====== */
+function bufferFor(userHours) {
+  if (userHours <= 3.0) return 0.0;   // NO buffer for ≤3h (prevents Marrakech/Dubai leakage)
+  if (userHours <= 4.5) return 0.3;   // gentle for short-haul
+  return 0.5;                         // 30 min as you wanted for longer ranges
+}
 
-function buildHighlightsPrompt(origin, p, bufferHours, excludes, regionPolicy) {
+/* ====== Region minimum plausible hours (guardrail against model underestimates) ====== */
+const MIN_HOURS_BY_REGION = {
+  europe: 0,
+  north_africa: 3.4,         // Marrakech/Casablanca from LHR ~3.5–4.0
+  atlantic_islands: 3.8,     // Madeira/Canaries typically 3.8–4.5
+  middle_east: 5.5,          // Dubai/Doha/Abu Dhabi ≥ ~6–7
+  east_africa: 7.0,          // Nairobi/ADD ≥ ~7–9
+  indian_ocean: 9.0,         // Maldives/Mauritius ≥ ~9–12
+  north_america: 6.5,        // NYC/BOS ≥ ~6.5–8
+  caribbean: 7.5,            // Barbados/Jamaica ≥ ~8–9
+  central_america: 9.0,
+  south_america: 10.0,
+  south_asia: 8.0,
+  southeast_asia: 11.5,
+  east_asia: 10.0,
+  oceania: 16.0,
+  caucasus: 4.5
+};
+
+/* ================ Prompt (sentence highlights + conservative hours) ================= */
+
+function buildHighlightsPrompt(origin, p, bufferHours, excludes, regionPolicy, hardShorthaulEuropeOnly) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-  const limit = userHours + bufferHours; // 0.5h buffer
+  const limit = userHours + bufferHours;
 
   const groupTxt =
     p?.group === 'family' ? 'Family with kids' :
@@ -142,8 +168,12 @@ function buildHighlightsPrompt(origin, p, bufferHours, excludes, regionPolicy) {
     ? `Prefer candidates clustered in the ${regionPolicy.minHours}–${limit}h band. Include AT LEAST ${Math.max(6, regionPolicy.minPriorityInTop5)*2} candidates with approx_nonstop_hours ≥ ${regionPolicy.minHours}h.`
     : `Prefer flights up to ~${limit}h.`;
 
-  // Short-haul geographic spread hint (helps diversify Europe at ≤4.5h)
-  const euBalanceLine = userHours <= 4.5 ? `For short-haul ranges (≤ ~4.5h), ensure geographic spread: include at least one from Nordics/Baltics, one from Balkans/Eastern Europe, and one from Western Europe outside Iberia/Italy/France.` : '';
+  const shorthaulEuropeOnlyLine = hardShorthaulEuropeOnly
+    ? `Because the user allows only ~${userHours}h, include EUROPE ONLY. Do not include Middle East, North Africa, Atlantic Islands, or any intercontinental region.`
+    : '';
+
+  // Short-haul Europe spread hint
+  const euBalanceLine = userHours <= 4.5 ? `Ensure European geographic spread: include at least one from Nordics/Baltics, one from Balkans/Eastern Europe, and one from Western Europe outside Iberia/Italy/France.` : '';
 
   const REGION_ENUM = [
     'europe','north_africa','atlantic_islands','middle_east','east_africa','indian_ocean',
@@ -162,6 +192,7 @@ function buildHighlightsPrompt(origin, p, bufferHours, excludes, regionPolicy) {
 - Non-stop flight time must be ≤ ~${limit}h from ${origin}. This is an absolute cap.
 - "approx_nonstop_hours" must be a conservative estimate (round UP to one decimal place, do not underestimate).
 - ${bandLine}
+- ${shorthaulEuropeOnlyLine}
 - ${euBalanceLine}
 - Priority regions: ${pri}. Label each item with a "region" from the enum above.
 - Travellers: ${groupTxt}. Interests: ${interestsTxt}. Season: ${seasonTxt}.
@@ -211,14 +242,9 @@ Rules:
 `.trim();
 }
 
-/* ================ Selection (Europe allowed; 30-min buffer; short-haul variety) ================= */
+/* ================ Selection (strict short-haul, region floors, weighted sampling) ================= */
 
-// No hard avoid/downrank lists globally.
-// For short-haul only, we gently rotate over-exposed EU hotspots.
-const EU_POPULAR = new Set([
-  'lisbon','barcelona','porto','paris','rome','amsterdam','madrid','athens','venice',
-  'florence','prague','vienna','budapest','dublin','valencia','nice','catania','dubrovnik','milan','seville','naples','berlin'
-]);
+// No global avoid/downrank lists; we rely on policies + randomness.
 
 const RECENT_MAX = 30;
 const RECENT = [];
@@ -242,21 +268,27 @@ function parseCandidates(parsedObj) {
 function seededJitter(seedStr, i, amp = 0.03) {
   let h = 2166136261; const s = (seedStr + '|' + i);
   for (let c = 0; c < s.length; c++) { h ^= s.charCodeAt(c); h = Math.imul(h, 16777619); }
-  // map to [-amp, +amp]
-  return (((h >>> 0) % 10000) / 10000 - 0.5) * 2 * amp;
+  return (((h >>> 0) % 10000) / 10000 - 0.5) * 2 * amp; // [-amp, +amp]
 }
 
-function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', regionPolicy) {
+function clampHoursByRegion(hours, region) {
+  if (!Number.isFinite(hours)) return hours;
+  const floor = MIN_HOURS_BY_REGION[region] ?? 0;
+  return Math.max(hours, floor);
+}
+
+function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', regionPolicy, hardShorthaulEuropeOnly) {
   const excludeSet = new Set((Array.isArray(excludes)?excludes:[]).map(x => STRIP(x).toLowerCase()));
   const cleaned = (Array.isArray(cands) ? cands : []).map(x => {
-    const hours = Number(x.approx_nonstop_hours);
+    const baseHours = Number(x.approx_nonstop_hours);
     const region = STRIP((x.region || '').toString()).toLowerCase();
+    const correctedHours = Number.isFinite(baseHours) ? clampHoursByRegion(baseHours, region) : baseHours;
     return {
       city: STRIP(x.city),
       country: STRIP(x.country),
       region,
       type: STRIP(x.type || '').toLowerCase(),
-      approx_nonstop_hours: Number.isFinite(hours) ? hours : null,
+      approx_nonstop_hours: Number.isFinite(correctedHours) ? correctedHours : null,
       summary: STRIP(x.summary || ''),
       highlights: Array.isArray(x.highlights) ? x.highlights.slice(0,3).map(STRIP) : []
     };
@@ -264,8 +296,14 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     x.city && x.country && x.highlights.length === 3
   );
 
-  // Hard filters (strict ≤ user + 0.5h)
-  let hard = cleaned.filter(x => {
+  // Hard region block for very short-haul: Europe only
+  let pool = cleaned;
+  if (hardShorthaulEuropeOnly) {
+    pool = pool.filter(x => EUROPE_NAMES.has(x.region));
+  }
+
+  // Hard filters (strict ≤ user + buffer)
+  let hard = pool.filter(x => {
     const cityLc = x.city.toLowerCase();
     const key = `${cityLc}|${x.country.toLowerCase()}`;
     if (isRestricted(x)) return false;
@@ -274,28 +312,29 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     return true;
   });
 
-  const unknownHours = cleaned.filter(x => x.approx_nonstop_hours == null);
+  const unknownHours = pool.filter(x => x.approx_nonstop_hours == null);
 
-  const isShorthaul = limitHours <= 4.5;        // 4h + 30m buffer
+  const isShorthaul = limitHours <= 4.5;
+  const isVeryShort = limitHours <= 3.0;
   const jitterAmp   = isShorthaul ? 0.12 : 0.03;
 
-  // Score with gentle long-haul preferences + short-haul rotation
+  // For very short-haul, require known hours (avoid “cheats”)
+  if (isVeryShort) {
+    hard = hard.filter(x => x.approx_nonstop_hours != null);
+  }
+
+  // Score with gentle long-haul preferences and short-haul rotation
   const scored = hard.map((it, i) => {
     const cityLc = it.city.toLowerCase();
     const key = `${cityLc}|${it.country.toLowerCase()}`;
     let score = 1.0;
 
-    // Long-haul nudges only if we actually asked for them
     if (regionPolicy.minHours > 0) {
       const h = it.approx_nonstop_hours ?? 0;
       if (h >= regionPolicy.minHours) score += 0.10; else score -= 0.10;
       if (regionPolicy.priorityRegions.includes(it.region)) score += 0.10;
     }
 
-    // Short-haul only: gently rotate over-exposed EU hotspots
-    if (isShorthaul && EU_POPULAR.has(cityLc)) score -= 0.12;
-
-    // De-dupe per-instance; prefer items with known hours
     if (RECENT_SET.has(key)) score -= 0.18;
     if (it.approx_nonstop_hours == null) score -= 0.05;
 
@@ -303,14 +342,15 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     return { ...it, _score: score };
   }).sort((a, b) => b._score - a._score);
 
-  // Greedy selection: priority quota (if any) → country diversity → fill; respect Europe cap
+  // Greedy selection with weighted sampling to increase diversity
   const picked = [];
   const seenCityCountry = new Set();
   const seenCountry = new Set();
 
-  const pushIfNew = (it) => {
+  function pushIfNew(it) {
     const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
     if (seenCityCountry.has(key)) return false;
+    // Europe cap (gentle)
     if (EUROPE_NAMES.has((it.region||'').toLowerCase())) {
       const europeCount = picked.filter(p => EUROPE_NAMES.has(p.region)).length;
       if (europeCount >= (regionPolicy.maxEuropeInTop5 ?? 5)) return false;
@@ -320,241 +360,23 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', re
     seenCountry.add(it.country.toLowerCase());
     noteRecent(it.city, it.country);
     return true;
-  };
+  }
 
-  // 1) Priority region quota first (only applies when minHours > 0)
+  // 1) Priority quota first (only if minHours > 0)
   for (const it of scored) {
     if (picked.length >= regionPolicy.minPriorityInTop5) break;
     if (regionPolicy.priorityRegions.includes(it.region)) pushIfNew(it);
   }
 
-  // 2) Country diversity
-  for (const it of scored) {
-    if (picked.length >= 5) break;
-    if (!seenCountry.has(it.country.toLowerCase())) pushIfNew(it);
-  }
-
-  // 3) Fill to 5 by best score
-  for (const it of scored) {
-    if (picked.length >= 5) break;
-    pushIfNew(it);
-  }
-
-  // Relaxations to guarantee 5
-  if (picked.length < 5) {
-    for (const it of scored) { // ignore Europe cap if needed
-      if (picked.length >= 5) break;
-      const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
-      if (seenCityCountry.has(key)) continue;
-      picked.push(it); seenCityCountry.add(key); seenCountry.add(it.country.toLowerCase()); noteRecent(it.city, it.country);
+  // 2) Country diversity — sample from top 10 rather than strict order to vary outputs
+  const topSlice = scored.slice(0, 10);
+  while (picked.length < 5 && topSlice.length) {
+    // Weighted pick by score
+    const total = topSlice.reduce((s, it) => s + Math.max(0.01, it._score), 0);
+    let r = Math.random() * total;
+    let idx = 0;
+    for (let i = 0; i < topSlice.length; i++) {
+      r -= Math.max(0.01, topSlice[i]._score);
+      if (r <= 0) { idx = i; break; }
     }
-  }
-  if (picked.length < 5) {
-    for (const it of unknownHours) {
-      if (picked.length >= 5) break;
-      const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
-      if (seenCityCountry.has(key)) continue;
-      picked.push(it); seenCityCountry.add(key); seenCountry.add(it.country.toLowerCase()); noteRecent(it.city, it.country);
-    }
-  }
-  if (picked.length < 5) {
-    for (const it of cleaned) {
-      if (picked.length >= 5) break;
-      const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
-      if (seenCityCountry.has(key)) continue;
-      picked.push(it); seenCityCountry.add(key); seenCountry.add(it.country.toLowerCase()); noteRecent(it.city, it.country);
-    }
-  }
-
-  return picked.slice(0,5);
-}
-
-/* ================= Fallback candidate pool (sentence-style highlights) ================= */
-
-function fallbackCandidates(origin, userHours) {
-  return [
-    // Europe
-    { city:'Reykjavik', country:'Iceland', region:'europe', type:'nature', approx_nonstop_hours:3.0,
-      summary:'Geothermal sights and modern Nordic culture',
-      highlights:[
-        'Float in the Blue Lagoon’s milky geothermal waters before a sunset view over mossy lava fields.',
-        'Drive the Golden Circle for thundering Gullfoss and the steamy vents and eruptions at Geysir.',
-        'Climb Hallgrímskirkja’s tower for a crisp panorama of colorful tin-roofed streets and harbor.'
-      ]},
-    { city:'Porto', country:'Portugal', region:'europe', type:'city', approx_nonstop_hours:2.0,
-      summary:'Ribeira quarter, Douro cellars, tiled churches',
-      highlights:[
-        'Cross the Dom Luís I Bridge at golden hour as rabelo boats drift past the pastel riverfront.',
-        'Sip a tawny port in a Vila Nova de Gaia lodge, then tour cool, barrel-scented aging cellars.',
-        'Browse Livraria Lello’s carved staircases before francesinha sandwiches in a buzzing tasca.'
-      ]},
-    { city:'Seville', country:'Spain', region:'europe', type:'city', approx_nonstop_hours:2.5,
-      summary:'Moorish palaces, plazas, and late-night tapas',
-      highlights:[
-        'Wander the Alcázar’s citrus courtyards and filigreed arches as fountains echo softly.',
-        'Glide around Plaza de España’s tiled alcoves, spotting regional murals under curved colonnades.',
-        'Snack on garlicky prawns and crisp croquetas in Triana’s ceramic-fronted bars after dusk.'
-      ]},
-
-    // North Africa / Atlantic Islands (~6h band)
-    { city:'Marrakech', country:'Morocco', region:'north_africa', type:'city', approx_nonstop_hours:3.7,
-      summary:'Souks, gardens, riads, and Atlas foothills',
-      highlights:[
-        'Watch snake charmers and orange-juice stalls ignite Jemaa el-Fnaa as drums quicken at sunset.',
-        'Step into Jardin Majorelle’s cobalt walkways beside pencil-thin cacti and rustling bamboo.',
-        'Trade mint tea for rooftop tagines as the call to prayer drifts over terracotta rooftops.'
-      ]},
-
-    // Middle East / East Africa (~7h band)
-    { city:'Dubai', country:'UAE', region:'middle_east', type:'city', approx_nonstop_hours:7.0,
-      summary:'Skyline drama, beaches, and desert escapes',
-      highlights:[
-        'Rocket up Burj Khalifa for hazy desert horizons and tiny dhows threading the Dubai Creek.',
-        'Wind through Madinat Jumeirah’s lantern-lit souk before abra rides past palm-lined canals.',
-        'Kick up sand on a sunset dune drive, finishing with grilled lamb and oud music at camp.'
-      ]},
-
-    // North America / Caribbean (8–10h band)
-    { city:'New York', country:'USA', region:'north_america', type:'city', approx_nonstop_hours:7.5,
-      summary:'Iconic culture, neighborhoods, and bites',
-      highlights:[
-        'Walk the High Line’s wildflower beds to Hudson views, ending with art at Chelsea galleries.',
-        'Grab a classic slice in Brooklyn before skyline shots from the ferry’s open upper deck.',
-        'Catch a Broadway matinee, then nightcap jazz in a dim Village basement club.'
-      ]},
-    { city:'Barbados', country:'Barbados', region:'caribbean', type:'beach', approx_nonstop_hours:8.5,
-      summary:'Caribbean coves, rum shops, and reef snorkeling',
-      highlights:[
-        'Snorkel with sea turtles in gin-clear Carlisle Bay before toes-in-sand rum punch at sundown.',
-        'Join the Friday fish fry at Oistins as grills smoke, steel pans ring, and locals dance.',
-        'Descend into Harrison’s Cave by tram to shimmering stalactites and whispering streams.'
-      ]},
-  ];
-}
-
-/* ================= Core generators ================= */
-
-async function generateHighlights(origin, p, excludes = []) {
-  const raw = Number(p?.flight_time_hours);
-  const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-  const regionPolicy = regionPolicyForHours(userHours);
-  const limit = userHours + 0.5; // 30-minute buffer
-
-  // True per-request seed: ensures different picks even if candidates repeat
-  const seed = randomUUID();
-
-  if (!process.env.OPENAI_API_KEY) {
-    const cands = fallbackCandidates(origin, userHours);
-    const top5 = pickTop5FromCandidates(cands, limit, excludes, seed, regionPolicy);
-    return withMeta({ top5 }, { mode:'sample' });
-  }
-
-  const sys = { role:'system', content:'Return JSON only. Include valid "region" and conservative "approx_nonstop_hours" (rounded up to 0.1h).' };
-  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 0.5, excludes, regionPolicy) };
-
-  let parsed = null;
-  try {
-    let content = await callOpenAI([sys, usr], PRIMARY, 1200, 0.9);
-    parsed = tryParse(content) || null;
-    if (!parsed) {
-      content = await callOpenAI([sys, usr], FALLBACK, 1200, 0.9);
-      parsed = tryParse(content) || null;
-    }
-  } catch {}
-
-  let cands = parsed ? parseCandidates(parsed) : [];
-  if (!Array.isArray(cands) || cands.length === 0) cands = fallbackCandidates(origin, userHours);
-
-  const top5 = pickTop5FromCandidates(cands, limit, excludes, seed, regionPolicy);
-  return withMeta({ top5 }, { mode:'live' });
-}
-
-async function generateItinerary(city, country, p) {
-  const want = daysWanted(p?.duration);
-  if (!process.env.OPENAI_API_KEY) {
-    return withMeta({
-      city, country,
-      days: Array.from({length: want}).map((_,i)=>({
-        title: `Day ${i+1}`,
-        morning:`Café by ${city} landmark (name it)`,
-        afternoon:`Short museum/garden near center (name it)`,
-        evening:`Dinner at a typical spot (name it) + viewpoint`
-      }))
-    }, { mode:'sample', wantDays: want });
-  }
-
-  const sys = { role:'system', content:'Concrete, named places; concise slots; no filler.' };
-  const usr = { role:'user', content: buildItineraryPrompt(city, country, want, p) };
-
-  let parsed = null;
-  try {
-    let content = await callOpenAI([sys, usr], PRIMARY, 1100, 0.55);
-    parsed = tryParse(content) || null;
-    if (!parsed) {
-      content = await callOpenAI([sys, usr], FALLBACK, 1100, 0.55);
-      parsed = tryParse(content) || null;
-    }
-  } catch {}
-
-  let days = Array.isArray(parsed?.days) ? parsed.days.slice(0, want) : [];
-  while (days.length < want) {
-    const i = days.length;
-    days.push({
-      title: `Day ${i+1}`,
-      morning:`Café by ${city} landmark (name it)`,
-      afternoon:`Short museum/garden near center (name it)`,
-      evening:`Dinner at a typical spot (name it) + viewpoint`
-    });
-  }
-  return withMeta({ city, country, days }, { mode:'live', wantDays: want });
-}
-
-/* ================= Route handlers ================= */
-
-export async function GET() {
-  const data = await generateHighlights('LHR', { interests:['Beaches'], group:'couple', season:'summer', flight_time_hours: 8 }, []);
-  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } });
-}
-
-export async function POST(req) {
-  let body = null;
-  try {
-    body = await req.json();
-    const origin = body?.origin || 'LHR';
-    const p = body?.preferences || {};
-    const build = body?.buildItineraryFor;
-    const excludes = Array.isArray(body?.exclude) ? body.exclude : [];
-
-    if (build?.city) {
-      const res = await generateItinerary(STRIP(build.city), STRIP(build.country || ''), p);
-      return NextResponse.json(res, { headers: { 'Cache-Control': 'no-store' } });
-    }
-
-    const res = await generateHighlights(origin, p, excludes);
-    const top5Safe = (Array.isArray(res.top5) ? res.top5 : []).filter(d => !isRestricted(d));
-
-    return NextResponse.json({ ...res, top5: top5Safe }, { headers: { 'Cache-Control': 'no-store' } });
-
-  } catch (err) {
-    console.error('API ERROR:', {
-      message: err?.message,
-      stack: err?.stack,
-      bodySummary: body ? {
-        hasPrefs: !!body?.preferences,
-        hasBuildItineraryFor: !!body?.buildItineraryFor,
-      } : null
-    });
-
-    // Error fallback (still honors 30-min buffer and region policy)
-    const p = body?.preferences || {};
-    const raw = Number(p?.flight_time_hours);
-    const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-    const regionPolicy = regionPolicyForHours(userHours);
-    const limit = userHours + 0.5;
-    const cands = fallbackCandidates('LHR', userHours);
-    const seed = randomUUID();
-    const top5 = pickTop5FromCandidates(cands, limit, [], seed, regionPolicy);
-
-    return NextResponse.json({ meta:{ mode:'error-fallback', error: err?.message || 'unknown' }, top5 }, { status: 200 });
-  }
-}
+    const cand = topSlice.splice(idx, 1)
