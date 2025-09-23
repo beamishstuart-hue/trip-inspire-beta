@@ -1,28 +1,22 @@
-// app/api/inspire/route.ts  (use this exact file path if you’re on the App Router)
+// app/api/inspire/route.js
 export const runtime = 'nodejs';
 
 import OpenAI from 'openai';
 
-// ---- helper: build the prompt safely (this was missing before) ----
-function buildItineraryPrompt(input: {
-  destination?: string;
-  days?: number;
-  prefs?: string[] | string;
-}) {
-  const destination =
-    (input?.destination || 'your chosen city').toString().trim();
-  const days = Number(input?.days) > 0 ? Number(input?.days) : 3;
+// ---- helper that was missing before ----
+function buildItineraryPrompt(input = {}) {
+  const destination = String(input.destination || 'your chosen city').trim();
+  const daysNum = Number(input.days) > 0 ? Number(input.days) : 3;
 
-  // allow prefs as string or array
   let prefsText = '';
-  if (Array.isArray(input?.prefs) && input!.prefs.length) {
-    prefsText = `Preferences: ${input!.prefs.join(', ')}.`;
-  } else if (typeof input?.prefs === 'string' && input.prefs.trim()) {
+  if (Array.isArray(input.prefs) && input.prefs.length) {
+    prefsText = `Preferences: ${input.prefs.join(', ')}.`;
+  } else if (typeof input.prefs === 'string' && input.prefs.trim()) {
     prefsText = `Preferences: ${input.prefs.trim()}.`;
   }
 
   return `
-Create a ${days}-day, first-timer-friendly itinerary for ${destination}.
+Create a ${daysNum}-day, first-timer-friendly itinerary for ${destination}.
 ${prefsText}
 Return ONLY valid JSON with this shape:
 {
@@ -36,8 +30,7 @@ Return ONLY valid JSON with this shape:
 `.trim();
 }
 
-// ---- POST handler ----
-export async function POST(req: Request) {
+export async function POST(req) {
   try {
     if (!process.env.OPENAI_API_KEY) {
       console.error('Missing OPENAI_API_KEY');
@@ -47,8 +40,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // read body safely
-    let body: any = {};
+    // read JSON body safely
+    let body = {};
     try {
       body = await req.json();
     } catch {
@@ -56,9 +49,9 @@ export async function POST(req: Request) {
     }
 
     const prompt = buildItineraryPrompt({
-      destination: body?.destination,
-      days: body?.days,
-      prefs: body?.prefs,
+      destination: body.destination,
+      days: body.days,
+      prefs: body.prefs,
     });
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -73,10 +66,8 @@ export async function POST(req: Request) {
       ],
     });
 
-    const text = resp.choices?.[0]?.message?.content || '{}';
-
-    // try to parse; if not JSON, send raw so UI can show something
-    let json: any;
+    const text = resp?.choices?.[0]?.message?.content || '{}';
+    let json;
     try {
       json = JSON.parse(text);
     } catch {
@@ -84,7 +75,7 @@ export async function POST(req: Request) {
     }
 
     return Response.json({ ok: true, itinerary: json });
-  } catch (err: any) {
+  } catch (err) {
     console.error('API ERROR:', {
       message: err?.message,
       stack: err?.stack,
@@ -97,7 +88,6 @@ export async function POST(req: Request) {
   }
 }
 
-// optional: make GET explicit
 export function GET() {
   return new Response('Method Not Allowed', { status: 405 });
 }
