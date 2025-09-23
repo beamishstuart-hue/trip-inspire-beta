@@ -18,7 +18,6 @@ const BLOCK_COUNTRIES = new Set([
   'Angola','Bangladesh','Bolivia','Brazil','Colombia','Ghana','Guatemala','Kosovo','Papua New Guinea',
   'Rwanda','Uganda','Israel','The Occupied Palestinian Territories'
 ]);
-
 const BLOCK_CITIES = new Set(['Tel Aviv','Jerusalem','Haifa','Eilat','Nazareth']);
 
 function isRestricted(place = {}) {
@@ -44,7 +43,7 @@ function daysWanted(dur) {
   return 7;
 }
 
-async function callOpenAI(messages, model, max_tokens=1100, temperature=0.9) {
+async function callOpenAI(messages, model, max_tokens=1200, temperature=0.92) {
   const res = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
@@ -71,9 +70,40 @@ function tryParse(text) {
   return null;
 }
 
+/* =============== Region bands (make long-haul show up) ================= */
+
+const EUROPE_NAMES = new Set(['europe','western_europe','central_europe','southern_europe','northern_europe','eastern_europe']);
+function regionPolicyForHours(userHours) {
+  if (userHours >= 8) {
+    return {
+      minHours: Math.max(6, Math.floor(userHours * 0.65)),
+      priorityRegions: ['north_america','caribbean','middle_east','east_africa','indian_ocean'],
+      maxEuropeInTop5: 2,
+      minPriorityInTop5: 3
+    };
+  }
+  if (userHours >= 7) {
+    return {
+      minHours: 6,
+      priorityRegions: ['middle_east','east_africa','caucasus'],
+      maxEuropeInTop5: 3,
+      minPriorityInTop5: 2
+    };
+  }
+  if (userHours >= 6) {
+    return {
+      minHours: 5,
+      priorityRegions: ['north_africa','atlantic_islands'], // Canaries/Madeira/Cape Verde
+      maxEuropeInTop5: 4,
+      minPriorityInTop5: 2
+    };
+  }
+  return { minHours: 0, priorityRegions: [], maxEuropeInTop5: 5, minPriorityInTop5: 0 };
+}
+
 /* ================ Prompts ================= */
 
-function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = [], minHours = 0) {
+function buildHighlightsPrompt(origin, p, bufferHours, excludes, regionPolicy) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
   const limit = userHours + bufferHours;
@@ -97,32 +127,41 @@ function buildHighlightsPrompt(origin, p, bufferHours = 2, excludes = [], minHou
     ? `Exclude these cities (any country): ${excludes.join(', ')}.`
     : '';
 
-  const bandLine = minHours > 0
-    ? `Prefer candidates clustered in the ${minHours}–${limit}h range. Include AT LEAST 6 candidates with approx_nonstop_hours ≥ ${minHours}h. Avoid short-haul (< ${minHours}h) unless needed to reach 12 items.`
-    : `Prefer candidates up to ${limit}h; shorter flights are fine.`;
+  const pri = regionPolicy.priorityRegions.join(', ') || 'no special priority';
+  const bandLine = regionPolicy.minHours > 0
+    ? `Prefer candidates clustered in the ${regionPolicy.minHours}–${limit}h band. Include AT LEAST ${Math.max(6, regionPolicy.minPriorityInTop5)*2} candidates with approx_nonstop_hours ≥ ${regionPolicy.minHours}h.`
+    : `Prefer shorter flights up to ${limit}h.`;
+
+  // Ask for REGION explicitly from this enum so we can filter
+  const REGION_ENUM = [
+    'europe','north_africa','atlantic_islands','middle_east','east_africa','indian_ocean',
+    'north_america','caribbean','central_america','south_america','south_asia','southeast_asia','east_asia','oceania','caucasus'
+  ].join('|');
 
   return [
 `You are Trip Inspire. Origin airport: ${origin}.`,
 `Return JSON ONLY in this exact shape:
 {"candidates":[
-  {"city":"...","country":"...","type":"city|beach|nature|culture","approx_nonstop_hours":7,
+  {"city":"...","country":"...","region":"${REGION_ENUM}","type":"city|beach|nature|culture","approx_nonstop_hours":7,
    "summary":"1–2 lines","highlights":["...", "...", "..."] }
-  // 12 items total
+  // 16 items total
 ]}`,
 `Constraints:
 - Non-stop flight time must be ≤ ~${limit}h from ${origin}. Provide your best estimate in "approx_nonstop_hours".
 - ${bandLine}
+- Priority regions: ${pri}. Label each item with an appropriate "region" from the enum above.
 - Travellers: ${groupTxt}. Interests: ${interestsTxt}. Season: ${seasonTxt}.
-- Cover AT LEAST 6 different countries across the full candidate list.
+- Cover AT LEAST 6 different countries across the candidate list.
 - Aim for a mix of types: include some of each: city, beach/coast, and nature/outdoors where relevant.
 - Avoid overused picks like Lisbon, Barcelona, Porto, Paris, Rome, Amsterdam unless uniquely suited.
 - Each "highlights" array has EXACTLY 3 concise, specific items with named anchors + one micro-detail (dish/view/sound).
 ${excludeLine}
 - Do not include places in restricted countries/cities if asked to exclude them.`,
-`Style:
-- No prose outside JSON. Keep "summary" snappy and concrete.`
+`Style: No prose outside JSON. Keep "summary" snappy and concrete.`
   ].filter(Boolean).join('\n');
 }
+
+/* ================ Itinerary prompt ================= */
 
 function buildItineraryPrompt(city, country = '', days = 3, prefs = {}) {
   const groupTxt =
@@ -159,43 +198,24 @@ Rules:
 `.trim();
 }
 
-/* ================ Repeat blocker + selection ================= */
+/* ================ Selection (prefer long-haul + cap Europe) ================= */
 
-// Soft avoid (generic Europe repeats)
 const AVOID = new Set([
   'lisbon','barcelona','porto','paris','rome','amsterdam','london','madrid','athens','venice',
   'florence','berlin','prague','vienna','budapest','dublin'
 ]);
-
-// Downrank the specific repeat offenders you observed (not a hard ban)
 const DOWNRANK = new Set(['valencia','catania','dubrovnik','nice']);
 
-// In-memory cooldown (per lambda instance). Ephemeral but helps short-term repeats.
 const RECENT_MAX = 30;
-const RECENT = []; // array of keys "city|country"
+const RECENT = [];
 const RECENT_SET = new Set();
 function noteRecent(city, country) {
   const key = `${city.toLowerCase()}|${country.toLowerCase()}`;
   if (RECENT_SET.has(key)) return;
   RECENT.push(key); RECENT_SET.add(key);
   while (RECENT.length > RECENT_MAX) {
-    const old = RECENT.shift();
-    if (old) RECENT_SET.delete(old);
+    const old = RECENT.shift(); if (old) RECENT_SET.delete(old);
   }
-}
-
-const TYPE_ALIASES = {
-  city: 'city', cities: 'city', urban: 'city', culture: 'culture',
-  beach: 'beach', coast: 'beach', seaside: 'beach', island: 'beach',
-  nature: 'nature', outdoors: 'nature', mountains: 'nature', lakes: 'nature'
-};
-function normType(t) {
-  const k = STRIP(t).toLowerCase();
-  return TYPE_ALIASES[k] || (k.includes('beach') ? 'beach'
-                    : k.includes('city') ? 'city'
-                    : (k.includes('nature') || k.includes('outdoor')) ? 'nature'
-                    : k.includes('culture') ? 'culture'
-                    : 'city');
 }
 
 function parseCandidates(parsedObj) {
@@ -203,27 +223,22 @@ function parseCandidates(parsedObj) {
   if (Array.isArray(parsedObj?.top5)) return parsedObj.top5; // fallback
   return [];
 }
-
-// Small seeded jitter to vary order between runs (stable per input)
 function seededJitter(seedStr, i) {
-  let h = 2166136261;
-  const s = (seedStr + '|' + i);
-  for (let c = 0; c < s.length; c++) {
-    h ^= s.charCodeAt(c);
-    h = Math.imul(h, 16777619);
-  }
-  // map to [-0.02, +0.02]
+  let h = 2166136261; const s = (seedStr + '|' + i);
+  for (let c = 0; c < s.length; c++) { h ^= s.charCodeAt(c); h = Math.imul(h, 16777619); }
   return ((h >>> 0) % 4000) / 100000 - 0.02;
 }
 
-function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', minHours = 0) {
+function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', regionPolicy) {
   const excludeSet = new Set((Array.isArray(excludes)?excludes:[]).map(x => STRIP(x).toLowerCase()));
   const cleaned = (Array.isArray(cands) ? cands : []).map(x => {
     const hours = Number(x.approx_nonstop_hours);
+    const region = STRIP((x.region || '').toString()).toLowerCase();
     return {
       city: STRIP(x.city),
       country: STRIP(x.country),
-      type: normType(x.type || ''),
+      region,
+      type: STRIP(x.type || '').toLowerCase(),
       approx_nonstop_hours: Number.isFinite(hours) ? hours : null,
       summary: STRIP(x.summary || ''),
       highlights: Array.isArray(x.highlights) ? x.highlights.slice(0,3).map(STRIP) : []
@@ -243,71 +258,67 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', mi
     return true;
   });
 
-  // Split by hours band if we want long-haul
-  const longhaul = minHours > 0 ? hard.filter(x => (x.approx_nonstop_hours ?? 0) >= minHours) : hard;
-  const shorthail = minHours > 0 ? hard.filter(x => (x.approx_nonstop_hours ?? 0) <  minHours) : [];
+  // Score with long-haul and region preferences
+  const scored = hard.map((it, i) => {
+    const cityLc = it.city.toLowerCase();
+    const key = `${cityLc}|${it.country.toLowerCase()}`;
+    let score = 1.0;
 
-  // Score (downrank repeats etc.) + small jitter
-  function scoreList(list) {
-    return list.map((it, i) => {
-      const cityLc = it.city.toLowerCase();
-      const key = `${cityLc}|${it.country.toLowerCase()}`;
-      let score = 1.0;
-      if (DOWNRANK.has(cityLc)) score -= 0.15;
-      if (RECENT_SET.has(key)) score -= 0.2;
-      if (it.approx_nonstop_hours == null) score -= 0.05;
-      // Prefer being inside the desired long-haul band if set
-      if (minHours > 0) {
-        const h = it.approx_nonstop_hours ?? 0;
-        if (h >= minHours) score += 0.08;
-        else score -= 0.25;
-      }
-      score += seededJitter(seed, i);
-      return { ...it, _score: score };
-    }).sort((a, b) => b._score - a._score);
-  }
+    // Prefer inside long-haul band if set
+    if (regionPolicy.minHours > 0) {
+      const h = it.approx_nonstop_hours ?? 0;
+      if (h >= regionPolicy.minHours) score += 0.12; else score -= 0.25;
+    }
 
-  const scoredLong  = scoreList(longhaul);
-  const scoredShort = scoreList(shorthail);
+    // Prefer priority regions
+    if (regionPolicy.priorityRegions.includes(it.region)) score += 0.12;
 
-  // Greedy selection with country & type diversity
+    // Downranks
+    if (DOWNRANK.has(cityLc)) score -= 0.15;
+    if (RECENT_SET.has(key)) score -= 0.2;
+    if (it.approx_nonstop_hours == null) score -= 0.05;
+
+    score += seededJitter(seed, i);
+    return { ...it, _score: score };
+  }).sort((a, b) => b._score - a._score);
+
+  // Greedy selection: enforce country variety, priority regions quota, and Europe cap
   const picked = [];
   const seenCityCountry = new Set();
   const seenCountry = new Set();
 
-  function pushIfNew(it) {
+  const pushIfNew = (it) => {
     const key = `${it.city.toLowerCase()}|${it.country.toLowerCase()}`;
     if (seenCityCountry.has(key)) return false;
+    // Europe cap
+    if (EUROPE_NAMES.has((it.region||'').toLowerCase())) {
+      const europeCount = picked.filter(p => EUROPE_NAMES.has(p.region)).length;
+      if (europeCount >= (regionPolicy.maxEuropeInTop5 ?? 5)) return false;
+    }
     picked.push(it);
     seenCityCountry.add(key);
     seenCountry.add(it.country.toLowerCase());
     noteRecent(it.city, it.country);
     return true;
-  }
+  };
 
-  // Pass 1: try to build from LONG-HAUL first
-  for (const it of scoredLong) {
-    if (!seenCountry.has(it.country.toLowerCase())) {
-      if (pushIfNew(it) && picked.length === 5) break;
+  // 1) Ensure priority region quota if possible
+  for (const it of scored) {
+    if (picked.length >= regionPolicy.minPriorityInTop5) break;
+    if (regionPolicy.priorityRegions.includes(it.region)) {
+      pushIfNew(it);
     }
   }
 
-  // Pass 2: ensure type coverage (city/beach/nature) from LONG-HAUL pool if possible
-  for (const t of ['city','beach','nature']) {
-    if (picked.find(p => p.type === t)) continue;
-    const cand = scoredLong.find(i => i.type === t && !seenCityCountry.has(`${i.city.toLowerCase()}|${i.country.toLowerCase()}`));
-    if (cand) { pushIfNew(cand); if (picked.length === 5) break; }
+  // 2) Ensure country diversity
+  for (const it of scored) {
+    if (picked.length >= 5) break;
+    if (!seenCountry.has(it.country.toLowerCase())) pushIfNew(it);
   }
 
-  // Pass 3: fill remaining from LONG-HAUL
-  for (const it of scoredLong) {
-    if (picked.length === 5) break;
-    pushIfNew(it);
-  }
-
-  // Pass 4: if still short, fill from SHORT-HAUL
-  for (const it of scoredShort) {
-    if (picked.length === 5) break;
+  // 3) Fill to 5 by best score (respecting Europe cap)
+  for (const it of scored) {
+    if (picked.length >= 5) break;
     pushIfNew(it);
   }
 
@@ -319,29 +330,27 @@ function pickTop5FromCandidates(cands, limitHours, excludes = [], seed = 'x', mi
 async function generateHighlights(origin, p, excludes = []) {
   const raw = Number(p?.flight_time_hours);
   const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
+  const regionPolicy = regionPolicyForHours(userHours);
   const limit = userHours + 2;
 
-  // If user allows ≥8h, we *prefer* long-haul: set a lower bound band (≈65% of user limit, min 6h)
-  const minHours = userHours >= 8 ? Math.max(6, Math.floor(userHours * 0.65)) : 0;
-
-  // Seed to vary ordering: origin + hours + first interest + current hour bucket
+  // Seed to vary ordering a bit between runs
   const seed = `${origin}|${userHours}|${(p?.interests && p.interests[0]) || ''}|${Math.floor(Date.now()/3600000)}`;
 
   if (!process.env.OPENAI_API_KEY) {
     const sample = [
-      { city:'Valencia', country:'Spain', type:'city',  approx_nonstop_hours:2.5, summary:'Beachy city with paella & modernism', highlights:['Ciudad de las Artes','La Pepica paella','El Cabanyal tiles'] },
-      { city:'Dubai',    country:'UAE',   type:'city',  approx_nonstop_hours:7.0, summary:'Skyline, desert, warm winter sun',   highlights:['Burj Khalifa view','Madinat Jumeirah','Desert dune drive'] },
-      { city:'New York', country:'USA',   type:'city',  approx_nonstop_hours:7.5, summary:'Big-ticket culture & food',         highlights:['High Line walk','Broadway show','Brooklyn pizza'] },
-      { city:'Mauritius',country:'Mauritius',type:'beach', approx_nonstop_hours:11.5, summary:'Tropical lagoons & reefs',       highlights:['Île aux Cerfs','Chamarel Seven Coloured Earths','Catamaran cruise'] },
-      { city:'Muscat',   country:'Oman',  type:'nature',approx_nonstop_hours:7.5, summary:'Coast, wadis, forts',                highlights:['Mutrah Corniche','Wadi Shab','Nizwa Fort'] },
-      { city:'Catania',  country:'Italy', type:'city',  approx_nonstop_hours:3.3, summary:'Sicilian baroque & Etna gateway',   highlights:['Piazza del Duomo','La Pescheria market','Via Etnea stroll'] },
-      { city:'Cancún',   country:'Mexico',type:'beach', approx_nonstop_hours:10.0, summary:'Caribbean resorts & cenotes',       highlights:['Playa Delfines','Chichén Itzá (day trip)','Cenote swim'] },
+      { city:'Valencia', country:'Spain', region:'europe', type:'city', approx_nonstop_hours:2.5, summary:'Beachy city with paella & modernism', highlights:['Ciudad de las Artes','La Pepica paella','El Cabanyal tiles'] },
+      { city:'Dubai',    country:'UAE',   region:'middle_east', type:'city', approx_nonstop_hours:7.0, summary:'Skyline, desert, warm winter sun', highlights:['Burj Khalifa view','Madinat Jumeirah','Desert dune drive'] },
+      { city:'New York', country:'USA',   region:'north_america', type:'city', approx_nonstop_hours:7.5, summary:'Big-ticket culture & food', highlights:['High Line walk','Broadway show','Brooklyn pizza'] },
+      { city:'Barbados', country:'Barbados', region:'caribbean', type:'beach', approx_nonstop_hours:8.5, summary:'Caribbean beaches & rum shops', highlights:['Carlisle Bay','Oistins fish fry','Harrison’s Cave'] },
+      { city:'Muscat',   country:'Oman',  region:'middle_east', type:'nature', approx_nonstop_hours:7.5, summary:'Coast, wadis, forts', highlights:['Mutrah Corniche','Wadi Shab','Nizwa Fort'] },
+      { city:'Marrakech',country:'Morocco', region:'north_africa', type:'city', approx_nonstop_hours:3.5, summary:'Souks & riads', highlights:['Jemaa el-Fnaa','Jardin Majorelle','Bahia Palace'] },
+      { city:'Reykjavik',country:'Iceland', region:'europe', type:'nature', approx_nonstop_hours:3.0, summary:'Geothermal sights', highlights:['Blue Lagoon','Golden Circle','Hallgrímskirkja'] },
     ];
-    return withMeta({ top5: pickTop5FromCandidates(sample, limit, excludes, seed, minHours) }, { mode:'sample' });
+    return withMeta({ top5: pickTop5FromCandidates(sample, limit, excludes, seed, regionPolicy) }, { mode:'sample' });
   }
 
-  const sys = { role:'system', content:'Return JSON only. Be concrete, country-diverse, and include type + approximate non-stop hours.' };
-  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 2, excludes, minHours) };
+  const sys = { role:'system', content:'Return JSON only. Include a valid "region" from the given enum; include "approx_nonstop_hours".' };
+  const usr = { role:'user', content: buildHighlightsPrompt(origin, p, 2, excludes, regionPolicy) };
 
   let content;
   try {
@@ -352,7 +361,7 @@ async function generateHighlights(origin, p, excludes = []) {
 
   const parsed = tryParse(content) || {};
   const cands = parseCandidates(parsed);
-  const top5 = pickTop5FromCandidates(cands, limit, excludes, seed, minHours);
+  const top5 = pickTop5FromCandidates(cands, limit, excludes, seed, regionPolicy);
 
   return withMeta({ top5 }, { mode:'live' });
 }
@@ -403,14 +412,11 @@ export async function GET() {
 
 export async function POST(req) {
   let body = null;
-
   try {
     body = await req.json();
     const origin = body?.origin || 'LHR';
     const p = body?.preferences || {};
     const build = body?.buildItineraryFor;
-
-    // Optional explicit excludes from client (e.g., last shown cities)
     const excludes = Array.isArray(body?.exclude) ? body.exclude : [];
 
     if (build?.city) {
@@ -419,9 +425,7 @@ export async function POST(req) {
     }
 
     const res = await generateHighlights(origin, p, excludes);
-
     const top5Safe = (Array.isArray(res.top5) ? res.top5 : []).filter(d => !isRestricted(d));
-
     return NextResponse.json({ ...res, top5: top5Safe });
 
   } catch (err) {
@@ -433,10 +437,6 @@ export async function POST(req) {
         hasBuildItineraryFor: !!body?.buildItineraryFor,
       } : null
     });
-
-    return NextResponse.json(
-      { error: 'Something went wrong in /api/inspire' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Something went wrong in /api/inspire' }, { status: 500 });
   }
 }
