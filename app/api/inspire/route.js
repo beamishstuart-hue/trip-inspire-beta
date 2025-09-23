@@ -87,7 +87,7 @@ function regionPolicyForHours(userHours) {
     return {
       minHours: Math.max(6, Math.floor(userHours * 0.65)),
       priorityRegions: ['north_america','caribbean','middle_east','east_africa','indian_ocean'],
-      maxEuropeInTop5: 4,   // was 2 → allow up to 4 Europe
+      maxEuropeInTop5: 3,   // was 2 → allow up to 3 Europe
       minPriorityInTop5: 2  // was 3 → require only 2 long-haul priority
     };
   }
@@ -207,6 +207,12 @@ Rules:
 }
 
 /* ================ Selection (soften short-haul penalty; cap Europe gently) ================= */
+
+const AVOID = new Set([
+  'lisbon','barcelona','porto','paris','rome','amsterdam','london','madrid','athens','venice',
+  'florence','berlin','prague','vienna','budapest','dublin'
+]);
+const DOWNRANK = new Set(['valencia','catania','dubrovnik','nice']);
 
 const RECENT_MAX = 30;
 const RECENT = [];
