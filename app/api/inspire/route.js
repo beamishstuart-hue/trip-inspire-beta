@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const PRIMARY = 'gpt-4o-mini';
 const FALLBACK = 'gpt-4o';
-const OPENAI_TIMEOUT_MS = 12000; // keep it snappy and reliable
+const OPENAI_TIMEOUT_MS = 10000; // fast, prevents timeouts
 
-/* ================= SAFETY FILTER (whole-country & key cities) ================ */
+/* ================= SAFETY FILTER (countries & specific cities) ================ */
 const BLOCK_COUNTRIES = new Set([
   'Afghanistan','Belarus','Burkina Faso','Haiti','Iran','Russia','South Sudan','Syria','Yemen',
   'Benin','Burundi','Cameroon','Central African Republic','Chad','Congo','Democratic Republic of the Congo',
@@ -43,9 +43,8 @@ function daysWanted(dur) {
 }
 
 /* ================= Flight-time policy =================
-   One uniform buffer (30m), no arbitrary gates, plus realistic region floors
-   to stop “Dubai in 3h” type mistakes. */
-const BASE_BUFFER_HOURS = 0.5;
+   One uniform buffer (30m). Region floors prevent obvious underestimates. */
+const TIME_BUFFER = 0.5;
 
 const REGION_ENUM = [
   'europe','north_africa','atlantic_islands','middle_east','east_africa','indian_ocean',
@@ -55,9 +54,9 @@ const REGION_ENUM = [
 
 const MIN_HOURS_BY_REGION = {
   europe: 0,
-  north_africa: 3.7,        // Marrakech/CMN from LHR ~3.7–4.2h
-  atlantic_islands: 3.8,    // Madeira/Canaries ~3.8–4.5h
-  middle_east: 5.8,         // DXB/DOH/AUH ≥ ~6–7h
+  north_africa: 3.7,        // LHR–RAK/CMN ~3.7–4.2
+  atlantic_islands: 3.8,    // Madeira/Canaries ~3.8–4.5
+  middle_east: 5.8,         // Dubai/Doha/Abu Dhabi ≥ ~6–7
   east_africa: 7.0,
   indian_ocean: 9.0,
   north_america: 6.5,
@@ -78,7 +77,7 @@ function clampHoursByRegion(hours, region) {
 }
 
 /* ================= OpenAI helper ================= */
-async function callOpenAI(messages, model, max_tokens=900, temperature=0.45, timeoutMs=OPENAI_TIMEOUT_MS) {
+async function callOpenAI(messages, model, max_tokens=800, temperature=0.35, timeoutMs=OPENAI_TIMEOUT_MS) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
   try {
@@ -91,7 +90,7 @@ async function callOpenAI(messages, model, max_tokens=900, temperature=0.45, tim
       },
       body: JSON.stringify({
         model,
-        temperature,             // lower = more consistent adherence to quiz
+        temperature,
         max_tokens,
         response_format: { type: 'json_object' },
         messages
@@ -142,7 +141,7 @@ function canonizeInterests(list) {
   return out;
 }
 
-/* ================= Prompt (compact, accuracy-first, candidate list) ================= */
+/* ================= Prompt (compact, quiz-led) ================= */
 function buildCandidatesPrompt(origin, prefs, limit) {
   const groupTxt =
     prefs?.group === 'family' ? 'family with kids' :
@@ -169,183 +168,119 @@ function buildCandidatesPrompt(origin, prefs, limit) {
    "themes":["beach","nature","museums","performing_arts","history","food","wine","nightlife","shopping","wellness","family","luxury","budget","diving","wildlife","ski","festival","all_inclusive"],
    "best_seasons":["spring","summer","autumn","winter"],
    "approx_nonstop_hours": 3.2,
-   "summary":"1–2 lines, clear fit to user profile",
+   "summary":"1–2 lines that directly show fit to this user",
    "highlights":[
      "<12–22 word sentence naming a place and a vivid micro-detail>",
      "<12–22 word sentence naming a place and a vivid micro-detail>",
      "<12–22 word sentence naming a place and a vivid micro-detail>"
    ]
   }
-  // 14–18 items total
+  // 12–16 items total
 ]}`,
 `Hard limits:
 - Non-stop flight time must be ≤ ${limit.toFixed(1)} hours from ${origin} (absolute cap).
 - "approx_nonstop_hours" must be conservative and rounded UP to one decimal place.
-- All items must be genuine matches to interests/season/group; reflect this in summary/highlights.
+- All items must be genuine matches to the user’s interests/season/group; reflect this in summary/highlights.
 - No prose outside the JSON.`
   ].join('\n');
 }
 
-/* ================= Fallbacks (simple, sentence style) ================= */
+/* ================= Fallbacks (small, sentence style) ================= */
 function fallbackShorthaulEU() {
   return [
-    { city:'Porto', country:'Portugal', region:'europe', type:'city',
-      themes:['city','food','wine','history'],
-      best_seasons:['spring','summer','autumn'],
-      approx_nonstop_hours:2.0,
-      summary:'Ribeira quarter, Douro cellars, tiled churches',
-      highlights:[
-        'Cross the Dom Luís I Bridge at golden hour as rabelo boats drift along the quay.',
-        'Sip tawny port in a Gaia lodge surrounded by cool, barrel-scented cellars.',
-        'Browse Livraria Lello’s carved staircases before francesinha in a lively tasca.'
-      ]},
     { city:'Cagliari', country:'Italy', region:'europe', type:'beach',
-      themes:['beach','food','history'],
-      best_seasons:['spring','summer','autumn'],
-      approx_nonstop_hours:2.5,
+      themes:['beach','food','history'], best_seasons:['spring','summer','autumn'], approx_nonstop_hours:2.5,
       summary:'Sandy coves, Phoenician ruins, and seafood trattorias',
       highlights:[
-        'Swim off Poetto Beach’s long crescent before a sunset spritz on the marina.',
-        'Climb Castello’s ramparts for views over lagoons dotted with flamingos.',
-        'Share fregola with clams at a family-run trattoria near Via Sardegna.'
+        'Swim off Poetto’s long crescent before a sunset spritz on the marina promenade.',
+        'Climb Castello ramparts for lagoon views dotted with wading flamingos.',
+        'Share fregola with clams in a family trattoria near Via Sardegna.'
       ]},
     { city:'Split', country:'Croatia', region:'europe', type:'beach',
-      themes:['beach','history','nightlife'],
-      best_seasons:['spring','summer','autumn'],
-      approx_nonstop_hours:2.5,
+      themes:['beach','history','nightlife'], best_seasons:['spring','summer','autumn'], approx_nonstop_hours:2.5,
       summary:'Roman palace lanes and island-hopping ferries',
       highlights:[
-        'Wander Diocletian’s Palace arcades as church bells echo off pale stone.',
-        'Ferry to Hvar’s Pakleni islands for pine-fringed coves and clear water.',
-        'Toast with chilled Pošip on the Riva promenade as yachts bob in the harbor.'
+        'Wander Diocletian’s arcades as church bells echo off pale stone.',
+        'Ferry to Pakleni coves for pine shade and glass-clear shallows.',
+        'Toast with chilled Pošip on the Riva while yachts bob offshore.'
       ]},
     { city:'Copenhagen', country:'Denmark', region:'europe', type:'city',
-      themes:['city','design','food','museums'],
-      best_seasons:['spring','summer','autumn'],
-      approx_nonstop_hours:2.0,
+      themes:['city','design','food','museums'], best_seasons:['spring','summer','autumn'], approx_nonstop_hours:2.0,
       summary:'Harborside design, bike lanes, and New Nordic dining',
       highlights:[
-        'Cycle past Nyhavn’s pastel townhouses, then smørrebrød by the quay.',
-        'Tour Designmuseum Danmark’s clean lines before coffee in a hygge café.',
+        'Cycle past Nyhavn’s pastels, then smørrebrød and beer by the quay.',
+        'Tour Designmuseum Danmark’s clean lines before a hygge café stop.',
         'Watch copper spires glow from Christiansborg Tower at sunset.'
       ]},
     { city:'Madeira (Funchal)', country:'Portugal', region:'atlantic_islands', type:'nature',
-      themes:['nature','hiking','beach'],
-      best_seasons:['spring','summer','autumn','winter'],
-      approx_nonstop_hours:3.9,
+      themes:['nature','hiking','beach'], best_seasons:['spring','summer','autumn','winter'], approx_nonstop_hours:3.9,
       summary:'Levadas, cloud forests, and ocean viewpoints',
       highlights:[
-        'Walk the 25 Fontes levada through laurel forest to ferns and waterfalls.',
+        'Walk the 25 Fontes levada through laurel forest to fern-fringed falls.',
         'Ride the Monte cable car, then wicker toboggan down cobbled lanes.',
-        'Watch waves slam São Lourenço cliffs from a windy headland path.'
+        'Watch waves hammer São Lourenço cliffs from a windy headland.'
       ]},
+    { city:'Valencia', country:'Spain', region:'europe', type:'city',
+      themes:['city','beach','food'], best_seasons:['spring','summer','autumn'], approx_nonstop_hours:2.3,
+      summary:'Beachside modernism, paella traditions, and neighborhood markets',
+      highlights:[
+        'Wander Calatrava’s City of Arts before horchata under shady colonnades.',
+        'Eat paella by the sand at La Pepica after a boardwalk stroll.',
+        'Browse Central Market’s citrus pyramids and jamón counters.'
+      ]}
   ];
 }
 function fallbackMixed() {
   return [
     { city:'Marrakech', country:'Morocco', region:'north_africa', type:'city',
-      themes:['city','markets','food','history'],
-      best_seasons:['autumn','winter','spring'],
-      approx_nonstop_hours:3.9,
+      themes:['city','markets','food','history'], best_seasons:['autumn','winter','spring'], approx_nonstop_hours:3.9,
       summary:'Souks, gardens, riads, and Atlas foothills',
       highlights:[
         'Watch snake charmers spark Jemaa el-Fnaa as drums quicken at sunset.',
-        'Wander Jardin Majorelle’s cobalt paths between towering cacti and bamboo.',
-        'Share rooftop tagines as the call to prayer drifts across terracotta roofs.'
+        'Wander Jardin Majorelle’s cobalt paths between cacti and bamboo.',
+        'Share rooftop tagines as the call to prayer drifts over terracotta roofs.'
       ]},
     { city:'New York', country:'USA', region:'north_america', type:'city',
-      themes:['city','museums','performing_arts','food','shopping'],
-      best_seasons:['spring','autumn','winter','summer'],
-      approx_nonstop_hours:7.5,
+      themes:['city','museums','performing_arts','food','shopping'], best_seasons:['spring','autumn','winter','summer'], approx_nonstop_hours:7.5,
       summary:'Iconic culture, neighborhoods, and bites',
       highlights:[
-        'Stroll the High Line’s wildflowers to Hudson views, ending at Chelsea galleries.',
-        'Catch a Broadway matinee, then late jazz in a dim Village basement club.',
-        'Grab a classic slice in Brooklyn and ferry back past a glittering skyline.'
+        'Stroll the High Line’s wildflowers to Hudson views and Chelsea galleries.',
+        'Catch a Broadway matinee, then late jazz in a Village basement club.',
+        'Ride the ferry for skyline shots and a breezy harbor loop.'
       ]},
     { city:'Barbados', country:'Barbados', region:'caribbean', type:'beach',
-      themes:['beach','snorkeling','food','relaxation'],
-      best_seasons:['winter','spring'],
-      approx_nonstop_hours:8.5,
+      themes:['beach','snorkeling','food','relaxation'], best_seasons:['winter','spring'], approx_nonstop_hours:8.5,
       summary:'Caribbean coves, rum shops, and reef snorkeling',
       highlights:[
-        'Snorkel with turtles in gin-clear Carlisle Bay before rum punch at sundown.',
-        'Join the Friday fish fry at Oistins as grills smoke and steel pans ring.',
-        'Descend into Harrison’s Cave to shimmering stalactites and whispering streams.'
+        'Snorkel with turtles in gin-clear Carlisle Bay before rum punch at dusk.',
+        'Join Friday fish fry at Oistins as grills smoke and steel pans ring.',
+        'Descend into Harrison’s Cave to shimmering stalactites and streams.'
       ]},
     { city:'Reykjavik', country:'Iceland', region:'europe', type:'nature',
-      themes:['nature','hot springs','museums'],
-      best_seasons:['winter','spring','autumn','summer'],
-      approx_nonstop_hours:3.0,
+      themes:['nature','hot springs','museums'], best_seasons:['winter','spring','autumn','summer'], approx_nonstop_hours:3.0,
       summary:'Geothermal sights and modern Nordic culture',
       highlights:[
         'Float in the Blue Lagoon’s milky waters amid steam and black lava fields.',
         'Drive the Golden Circle for thundering Gullfoss and erupting Geysir.',
-        'Climb Hallgrímskirkja’s tower over colorful tin-roofed streets and harbor.'
+        'Climb Hallgrímskirkja’s tower over colorful tin-roofed streets.'
       ]},
     { city:'Muscat', country:'Oman', region:'middle_east', type:'nature',
-      themes:['nature','beach','history'],
-      best_seasons:['winter','spring'],
-      approx_nonstop_hours:7.3,
+      themes:['nature','beach','history'], best_seasons:['winter','spring'], approx_nonstop_hours:7.3,
       summary:'Coastline forts, wadis, and desert mountains',
       highlights:[
-        'Walk Mutrah Corniche at dusk, frankincense drifting from the old souq.',
-        'Hike Wadi Shab’s turquoise pools beneath date palms and limestone walls.',
-        'Explore Nizwa Fort’s battlements before a coastal swim at Qantab Beach.'
+        'Walk Mutrah Corniche at dusk, frankincense drifting from the souq.',
+        'Hike Wadi Shab’s turquoise pools beneath limestone walls and palms.',
+        'Explore Nizwa Fort’s battlements before a coastal swim at Qantab.'
       ]}
   ];
 }
 
-/* ================= Scoring (quiz-led, continuous; no arbitrary gates) ================= */
-function scoreCandidate(c, user, limit, canonInterests) {
-  // Flight-time: must respect cap; slight preference if closer but not mandatory
-  const h = Number(c.approx_nonstop_hours);
-  const hours = Number.isFinite(h) ? clampHoursByRegion(h, c.region) : null;
-  if (hours != null && hours > limit) return -Infinity; // drop hard
-
-  // Basic fields
-  const themes = new Set((Array.isArray(c.themes) ? c.themes : []).map(t => STRIP(t).toLowerCase()));
-  const bestSeasons = new Set((Array.isArray(c.best_seasons) ? c.best_seasons : []).map(s => STRIP(s).toLowerCase()));
-  const type = STRIP(c.type || '').toLowerCase();
-  const season = String(user?.season || '').toLowerCase();
-
-  // Interest fit (0..1) — count intersection of canonical interests and candidate themes
-  let interestHits = 0;
-  for (const t of canonInterests) if (themes.has(t)) interestHits++;
-  const interestRatio = canonInterests.size ? (interestHits / canonInterests.size) : 0.3; // small base if user gave no interests
-
-  // Extra: if user explicitly includes “beach”, give boost when type or themes include beach
-  const beachBoost = canonInterests.has('beach') && (type === 'beach' || themes.has('beach')) ? 0.25 : 0;
-
-  // Season fit
-  const seasonFit = season && bestSeasons.has(season) ? 0.2 : 0;
-
-  // Group fit (very light; we rely on the model to reflect group in summary/highlights)
-  const groupFit =
-    user?.group === 'family' && themes.has('family') ? 0.1 :
-    user?.group === 'couple' && themes.has('luxury') ? 0.05 :
-    user?.group === 'friends' && themes.has('nightlife') ? 0.05 : 0;
-
-  // Mild preference for being within 70–100% of the cap (keeps “close but not over” options)
-  let hoursFit = 0;
-  if (Number.isFinite(hours)) {
-    const pct = hours / limit;
-    if (pct >= 0.7 && pct <= 1.0) hoursFit = 0.05;
-  }
-
-  // Small penalty if region is blocked (should be filtered earlier), or missing highlights
-  const highlightsOk = Array.isArray(c.highlights) && c.highlights.length >= 3;
-  const highlightPenalty = highlightsOk ? 0 : -0.2;
-
-  return 1.0 + 1.0 * interestRatio + beachBoost + seasonFit + groupFit + hoursFit + highlightPenalty;
-}
-
+/* ================= Scoring (simple, quiz-led; no arbitrary gates) ================= */
 function normalizeCandidates(raw) {
   return (Array.isArray(raw) ? raw : []).map(x => {
     const region = STRIP((x.region || '').toString()).toLowerCase();
-    const hours = Number.isFinite(Number(x.approx_nonstop_hours))
-      ? clampHoursByRegion(Number(x.approx_nonstop_hours), region)
-      : null;
+    const h = Number(x.approx_nonstop_hours);
+    const hours = Number.isFinite(h) ? clampHoursByRegion(h, region) : null;
 
     return {
       city: STRIP(x.city),
@@ -361,87 +296,140 @@ function normalizeCandidates(raw) {
   }).filter(c => c.city && c.country && !isRestricted(c));
 }
 
-function pickTop5(cands, user, limit, excludes=[]) {
-  const excludeSet = new Set((Array.isArray(excludes) ? excludes : []).map(s => STRIP(s).toLowerCase()));
-  const canonInterests = canonizeInterests(user?.interests);
+function scoreCandidate(c, prefs, limit, canonInterests) {
+  // Hard cap
+  const h = c.approx_nonstop_hours;
+  if (h != null && h > limit) return -Infinity;
 
-  // Filter by cap and excludes first
+  // Interest fit
+  let hits = 0;
+  for (const t of canonInterests) if (c.themes.includes(t)) hits++;
+  const interestScore = canonInterests.size ? (hits / canonInterests.size) : 0.3;
+
+  // Extra boost for beach interest + beach type/theme
+  const beachBoost = canonInterests.has('beach') && (c.type === 'beach' || c.themes.includes('beach')) ? 0.3 : 0;
+
+  // Season fit
+  const season = String(prefs?.season || '').toLowerCase();
+  const seasonFit = season && c.best_seasons.includes(season) ? 0.15 : 0;
+
+  // Group hints (light)
+  const groupFit =
+    prefs?.group === 'family' && c.themes.includes('family') ? 0.1 :
+    prefs?.group === 'friends' && c.themes.includes('nightlife') ? 0.05 :
+    prefs?.group === 'couple'  && (c.themes.includes('luxury') || c.themes.includes('wellness')) ? 0.05 : 0;
+
+  // Slight preference for being within 70–100% of cap
+  let hoursFit = 0;
+  if (Number.isFinite(h)) {
+    const pct = h / limit;
+    if (pct >= 0.7 && pct <= 1.0) hoursFit = 0.05;
+  }
+
+  // Validate highlights (penalize if missing)
+  const highlightsOk = Array.isArray(c.highlights) && c.highlights.length >= 3;
+  const highlightPenalty = highlightsOk ? 0 : -0.2;
+
+  return 1.0 + 1.0*interestScore + beachBoost + seasonFit + groupFit + hoursFit + highlightPenalty;
+}
+
+function pickTop5(cands, prefs, limit, excludes=[]) {
+  const excludeSet = new Set((Array.isArray(excludes) ? excludes : []).map(s => STRIP(s).toLowerCase()));
+  const canonInterests = canonizeInterests(prefs?.interests);
+
+  // Filter by cap/excludes and ensure at least one interest match when interests provided
   let pool = normalizeCandidates(cands).filter(c => {
     if (excludeSet.has(c.city.toLowerCase())) return false;
     const key = `${c.city.toLowerCase()}|${c.country.toLowerCase()}`;
     if (excludeSet.has(key)) return false;
     if (c.approx_nonstop_hours != null && c.approx_nonstop_hours > limit) return false;
+    if (canonInterests.size) {
+      const anyHit = c.themes.some(t => canonInterests.has(t));
+      if (!anyHit) return false; // enforce at least one thematic match
+    }
     return true;
   });
 
-  // Score
-  const scored = pool.map(c => ({ c, s: scoreCandidate(c, user, limit, canonInterests) }))
+  // Score and sort
+  const scored = pool.map(c => ({ c, s: scoreCandidate(c, prefs, limit, canonInterests) }))
                      .filter(x => x.s > -Infinity)
                      .sort((a, b) => b.s - a.s);
 
-  // Country diversity cap: max 2 per country, but don’t block filling to 5
+  // Country diversity cap: max 2 per country (but allow fill later)
   const picked = [];
   const perCountry = new Map();
   for (const { c } of scored) {
     const cnt = perCountry.get(c.country.toLowerCase()) || 0;
-    if (cnt >= 2) continue; // soft cap
+    if (cnt >= 2) continue;
     picked.push(c);
     perCountry.set(c.country.toLowerCase(), cnt + 1);
     if (picked.length === 5) break;
   }
 
+  // Ensure at least one BEAC H when requested
+  if (canonInterests.has('beach') && !picked.some(p => p.type === 'beach' || p.themes.includes('beach'))) {
+    const beachCand = scored.find(({ c }) =>
+      (c.type === 'beach' || c.themes.includes('beach')) &&
+      !picked.find(p => p.city === c.city && p.country === c.country)
+    );
+    if (beachCand) {
+      if (picked.length === 5) picked.pop();
+      picked.push(beachCand.c);
+    }
+  }
+
   // If fewer than 5 (model under-delivered), allow same-country to fill
   if (picked.length < 5) {
     for (const { c } of scored) {
-      if (picked.find(p => p.city.toLowerCase() === c.city.toLowerCase() && p.country.toLowerCase() === c.country.toLowerCase())) continue;
+      if (picked.find(p => p.city === c.city && p.country === c.country)) continue;
       picked.push(c);
       if (picked.length === 5) break;
     }
   }
 
-  // As a last resort, fabricate missing highlights minimally (should be rare)
+  // Final repair of highlights (rare)
   for (const p of picked) {
     if (!Array.isArray(p.highlights) || p.highlights.length < 3) {
-      const needed = 3 - (Array.isArray(p.highlights) ? p.highlights.length : 0);
-      const filler = [];
-      for (let i = 0; i < needed; i++) {
-        filler.push(`Explore a signature spot in ${p.city} that matches your interests this season.`);
+      const need = 3 - (Array.isArray(p.highlights) ? p.highlights.length : 0);
+      const fill = [];
+      for (let i = 0; i < need; i++) {
+        fill.push(`Visit a signature spot in ${p.city} aligned to your selected interests this season.`);
       }
-      p.highlights = (p.highlights || []).concat(filler).slice(0,3);
+      p.highlights = (p.highlights || []).concat(fill).slice(0,3);
     }
   }
 
   return picked.slice(0,5);
 }
 
-/* ================= Core generators ================= */
+/* ================= Core generation ================= */
 async function generateHighlights(origin, prefs, excludes = []) {
   const raw = Number(prefs?.flight_time_hours);
-  const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-  const limit = userHours + BASE_BUFFER_HOURS;
+  const hours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
+  const limit = hours + TIME_BUFFER;
 
   // No key → curated fallback that still respects the cap
   if (!process.env.OPENAI_API_KEY) {
-    const fb = userHours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
+    const fb = hours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
     return withMeta({ top5: pickTop5(fb, prefs, limit, excludes) }, { mode:'sample' });
   }
 
   const prompt = buildCandidatesPrompt(origin, prefs, limit);
-  const sys = { role:'system', content:'Return JSON only.' };
+  const sys = { role:'system', content:'Return precise JSON only.' };
 
   let parsed = null;
   try {
-    let text = await callOpenAI([sys, { role:'user', content: prompt }], PRIMARY, 850, 0.45);
+    let text = await callOpenAI([sys, { role:'user', content: prompt }], PRIMARY, 800, 0.35);
     parsed = tryParse(text);
     if (!parsed) {
-      text = await callOpenAI([sys, { role:'user', content: prompt }], FALLBACK, 850, 0.45);
+      text = await callOpenAI([sys, { role:'user', content: prompt }], FALLBACK, 800, 0.35);
       parsed = tryParse(text);
     }
   } catch {}
 
   let cands = Array.isArray(parsed?.candidates) ? parsed.candidates : [];
   if (!cands.length) {
-    const fb = userHours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
+    const fb = hours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
     cands = fb;
   }
 
@@ -449,6 +437,7 @@ async function generateHighlights(origin, prefs, excludes = []) {
   return withMeta({ top5 }, { mode: parsed ? 'live' : 'error-fallback' });
 }
 
+/* ================= Itinerary (unchanged, concise) ================= */
 function buildItineraryPrompt(city, country = '', days = 3, prefs = {}) {
   const groupTxt =
     prefs.group === 'family' ? 'Family with kids' :
@@ -495,15 +484,15 @@ async function generateItinerary(city, country, prefs) {
     }, { mode:'sample', wantDays: want });
   }
 
-  const sys = { role:'system', content:'Concrete, named places; concise slots; no filler. Return JSON only.' };
+  const sys = { role:'system', content:'Concrete, named places; concise; JSON only.' };
   const usr = { role:'user', content: buildItineraryPrompt(city, country, want, prefs) };
 
   let parsed = null;
   try {
-    let text = await callOpenAI([sys, usr], PRIMARY, 900, 0.5);
+    let text = await callOpenAI([sys, usr], PRIMARY, 850, 0.45);
     parsed = tryParse(text) || null;
     if (!parsed) {
-      text = await callOpenAI([sys, usr], FALLBACK, 900, 0.5);
+      text = await callOpenAI([sys, usr], FALLBACK, 850, 0.45);
       parsed = tryParse(text) || null;
     }
   } catch {}
@@ -552,12 +541,12 @@ export async function POST(req) {
       bodySummary: body ? { hasPrefs: !!body?.preferences, hasBuildItineraryFor: !!body?.buildItineraryFor } : null
     });
 
-    // Final safety fallback (quick, quiz-led as much as possible)
+    // Final fallback (quick, quiz-led)
     const prefs = body?.preferences || {};
     const raw = Number(prefs?.flight_time_hours);
-    const userHours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
-    const limit = userHours + BASE_BUFFER_HOURS;
-    const fb = userHours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
+    const hours = Math.min(Math.max(Number.isFinite(raw) ? raw : 8, 1), 20);
+    const limit = hours + TIME_BUFFER;
+    const fb = hours <= 4.5 ? fallbackShorthaulEU() : fallbackMixed();
     const top5 = pickTop5(fb, prefs, limit, []);
     return NextResponse.json({ meta:{ mode:'error-fallback', error: err?.message || 'unknown' }, top5 }, { status: 200 });
   }
