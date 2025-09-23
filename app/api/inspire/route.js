@@ -31,14 +31,16 @@ Return ONLY valid JSON with this shape:
 }
 
 export async function POST(req) {
-  try {
-    if (!process.env.OPENAI_API_KEY) {
-      console.error('Missing OPENAI_API_KEY');
-      return new Response(
-        JSON.stringify({ error: 'Server misconfigured: missing OpenAI key' }),
-        { status: 500 }
-      );
-    }
+  // --- diagnostic stub: proves which code Vercel is running ---
+  console.log('[inspire] ROUTE_VERSION=v1-stub');
+  let body = {};
+  try { body = await req.json(); } catch {}
+  return Response.json({
+    ok: true,
+    version: 'v1-stub',
+    echo: body || null
+  });
+}
 
     // read JSON body safely
     let body = {};
