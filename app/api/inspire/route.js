@@ -1,4 +1,4 @@
-mport { NextResponse } from 'next/server';
+Import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
